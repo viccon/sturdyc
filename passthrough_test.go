@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/creativecreature/sturdyc"
+	"github.com/viccon/sturdyc"
 	"github.com/google/go-cmp/cmp"
 )
 

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/creativecreature/sturdyc"
+	"github.com/viccon/sturdyc"
 )
 
 type API struct {

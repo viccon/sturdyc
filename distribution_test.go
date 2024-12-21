@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/creativecreature/sturdyc"
+	"github.com/viccon/sturdyc"
 )
 
 type mockStorage struct {

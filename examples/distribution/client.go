@@ -5,7 +5,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/creativecreature/sturdyc"
+	"github.com/viccon/sturdyc"
 )
 
 // NOTE: We won't use all of these features in this example. However, I thought

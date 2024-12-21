@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/creativecreature/sturdyc"
+	"github.com/viccon/sturdyc"
 )
 
 func TestGetOrFetch(t *testing.T) {

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/creativecreature/sturdyc"
+	"github.com/viccon/sturdyc"
 )
 
 func createBatchFn(prefix string, calls *atomic.Int32, cond *sync.Cond) sturdyc.BatchFetchFn[string] {

@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/creativecreature/sturdyc"
+	"github.com/viccon/sturdyc"
 )
 
 var ids = []string{"1111", "2222", "3333"}

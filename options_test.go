@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/creativecreature/sturdyc"
+	"github.com/viccon/sturdyc"
 )
 
 func TestPanicsIfCapacityIsLessThanZero(t *testing.T) {

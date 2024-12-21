@@ -3,11 +3,11 @@
 # `sturdyc`: a caching library for building sturdy systems
 
 [![Mentioned in Awesome Go](https://awesome.re/mentioned-badge.svg)](https://github.com/avelino/awesome-go)
-[![Go Reference](https://pkg.go.dev/badge/github.com/creativecreature/sturdyc.svg)](https://pkg.go.dev/github.com/creativecreature/sturdyc)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/creativecreature/sturdyc/blob/master/LICENSE)
-[![Go Report Card](https://goreportcard.com/badge/github.com/creativecreature/sturdyc)](https://goreportcard.com/report/github.com/creativecreature/sturdyc)
-[![Test](https://github.com/creativecreature/sturdyc/actions/workflows/main.yml/badge.svg)](https://github.com/creativecreature/sturdyc/actions/workflows/main.yml)
-[![codecov](https://codecov.io/gh/creativecreature/sturdyc/graph/badge.svg?token=CYSKW3Z7E6)](https://codecov.io/gh/creativecreature/sturdyc)
+[![Go Reference](https://pkg.go.dev/badge/github.com/viccon/sturdyc.svg)](https://pkg.go.dev/github.com/viccon/sturdyc)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/viccon/sturdyc/blob/master/LICENSE)
+[![Go Report Card](https://goreportcard.com/badge/github.com/viccon/sturdyc)](https://goreportcard.com/report/github.com/viccon/sturdyc)
+[![Test](https://github.com/viccon/sturdyc/actions/workflows/main.yml/badge.svg)](https://github.com/viccon/sturdyc/actions/workflows/main.yml)
+[![codecov](https://codecov.io/gh/viccon/sturdyc/graph/badge.svg?token=CYSKW3Z7E6)](https://codecov.io/gh/viccon/sturdyc)
 
 `Sturdyc` is an in-memory cache that supports **non-blocking reads** and has a
 configurable number of shards that makes it possible to achieve writes
@@ -22,7 +22,7 @@ _robust_ and _highly performant_.
 # Installing
 
 ```sh
-go get github.com/creativecreature/sturdyc
+go get github.com/viccon/sturdyc
 ```
 
 # At a glance
@@ -88,7 +88,7 @@ Below is a screenshot showing the latency improvements we've observed after
 replacing our old cache with this package:
 
 &nbsp;
-<img width="1554" alt="Screenshot 2024-05-10 at 10 15 18" src="https://github.com/creativecreature/sturdyc/assets/12787673/adad1d4c-e966-4db1-969a-eda4fd75653a">
+<img width="1554" alt="Screenshot 2024-05-10 at 10 15 18" src="https://github.com/viccon/sturdyc/assets/12787673/adad1d4c-e966-4db1-969a-eda4fd75653a">
 &nbsp;
 
 In addition to this, we've seen our number of outgoing requests decrease by
@@ -185,17 +185,17 @@ these examples in the order they appear**. Most of them build on each other,
 and many share configurations. Here is a brief overview of what the examples
 are going to cover:
 
-- [**creating a cache client**](https://github.com/creativecreature/sturdyc?tab=readme-ov-file#creating-a-cache-client)
-- [**stampede protection**](https://github.com/creativecreature/sturdyc?tab=readme-ov-file#stampede-protection)
-- [**early refreshes**](https://github.com/creativecreature/sturdyc?tab=readme-ov-file#early-refreshes)
-- [**caching non-existent records**](https://github.com/creativecreature/sturdyc?tab=readme-ov-file#non-existent-records)
-- [**caching batch endpoints per record**](https://github.com/creativecreature/sturdyc?tab=readme-ov-file#batch-endpoints)
-- [**cache key permutations**](https://github.com/creativecreature/sturdyc?tab=readme-ov-file#cache-key-permutations)
-- [**refresh coalescing**](https://github.com/creativecreature/sturdyc?tab=readme-ov-file#refresh-coalescing)
-- [**request passthrough**](https://github.com/creativecreature/sturdyc?tab=readme-ov-file#passthrough)
-- [**distributed storage**](https://github.com/creativecreature/sturdyc?tab=readme-ov-file#distributed-storage)
-- [**custom metrics**](https://github.com/creativecreature/sturdyc?tab=readme-ov-file#custom-metrics)
-- [**generics**](https://github.com/creativecreature/sturdyc?tab=readme-ov-file#generics)
+- [**creating a cache client**](https://github.com/viccon/sturdyc?tab=readme-ov-file#creating-a-cache-client)
+- [**stampede protection**](https://github.com/viccon/sturdyc?tab=readme-ov-file#stampede-protection)
+- [**early refreshes**](https://github.com/viccon/sturdyc?tab=readme-ov-file#early-refreshes)
+- [**caching non-existent records**](https://github.com/viccon/sturdyc?tab=readme-ov-file#non-existent-records)
+- [**caching batch endpoints per record**](https://github.com/viccon/sturdyc?tab=readme-ov-file#batch-endpoints)
+- [**cache key permutations**](https://github.com/viccon/sturdyc?tab=readme-ov-file#cache-key-permutations)
+- [**refresh coalescing**](https://github.com/viccon/sturdyc?tab=readme-ov-file#refresh-coalescing)
+- [**request passthrough**](https://github.com/viccon/sturdyc?tab=readme-ov-file#passthrough)
+- [**distributed storage**](https://github.com/viccon/sturdyc?tab=readme-ov-file#distributed-storage)
+- [**custom metrics**](https://github.com/viccon/sturdyc?tab=readme-ov-file#custom-metrics)
+- [**generics**](https://github.com/viccon/sturdyc?tab=readme-ov-file#generics)
 
 # Creating a cache client
 
@@ -375,7 +375,7 @@ to pick IDs from different batches:
 ```
 
 And on the last line, we can see that the additional calls didn't generate any
-further outgoing requests. The entire example is available [here.](https://github.com/creativecreature/sturdyc/tree/main/examples/basic)
+further outgoing requests. The entire example is available [here.](https://github.com/viccon/sturdyc/tree/main/examples/basic)
 
 ## Early refreshes
 
@@ -639,7 +639,7 @@ just a single ID wasn't found:
 and then have the cache swallow that error and return nil, felt much less
 intuitive.
 
-The entire example is available [here.](https://github.com/creativecreature/sturdyc/tree/main/examples/refreshes)
+The entire example is available [here.](https://github.com/viccon/sturdyc/tree/main/examples/refreshes)
 
 # Non-existent records
 
@@ -755,7 +755,7 @@ You simply just have to omit the key from the map:
 	}
 ```
 
-The entire example is available [here.](https://github.com/creativecreature/sturdyc/tree/main/examples/missing)
+The entire example is available [here.](https://github.com/viccon/sturdyc/tree/main/examples/missing)
 
 # Batch endpoints
 
@@ -874,7 +874,7 @@ batch looks like:
 ...
 ```
 
-The entire example is available [here.](https://github.com/creativecreature/sturdyc/tree/main/examples/batch)
+The entire example is available [here.](https://github.com/viccon/sturdyc/tree/main/examples/batch)
 
 # Cache key permutations
 
@@ -1029,7 +1029,7 @@ go run .
 2024/04/07 13:33:58 Fetching: [id3], carrier: DHL, delivery time: 2024-04-07
 ```
 
-The entire example is available [here.](https://github.com/creativecreature/sturdyc/tree/main/examples/permutations)
+The entire example is available [here.](https://github.com/viccon/sturdyc/tree/main/examples/permutations)
 
 # Refresh coalescing
 
@@ -1082,7 +1082,7 @@ go run .
 The number of outgoing requests for the refreshes went from **9** to **3**.
 Imagine what a batch size of 50 would do for your applications performance!
 
-The entire example is available [here.](https://github.com/creativecreature/sturdyc/tree/main/examples/buffering)
+The entire example is available [here.](https://github.com/viccon/sturdyc/tree/main/examples/buffering)
 
 # Passthrough
 
@@ -1170,7 +1170,7 @@ policies of this storage. `sturdyc` will only make sure that it's being kept
 up-to-date with the data it has in-memory.
 
 I've included an example to showcase this functionality
-[here.](https://github.com/creativecreature/sturdyc/tree/main/examples/distribution)
+[here.](https://github.com/viccon/sturdyc/tree/main/examples/distribution)
 
 When running that application, you should see output that looks something like
 this:
@@ -1254,7 +1254,7 @@ you're using **missing record storage**, it will write the key as a missing
 record instead.
 
 I've included an example to showcase this functionality
-[here.](https://github.com/creativecreature/sturdyc/tree/main/examples/distributed-early-refreshes)
+[here.](https://github.com/viccon/sturdyc/tree/main/examples/distributed-early-refreshes)
 
 # Custom metrics
 
@@ -1322,16 +1322,16 @@ cacheDistributedMetrics := sturdyc.New[any](
 
 Below are a few images where these metrics have been visualized in Grafana:
 
-<img width="939" alt="Screenshot 2024-05-04 at 12 36 43" src="https://github.com/creativecreature/sturdyc/assets/12787673/1f630aed-2322-4d3a-9510-d582e0294488">
+<img width="939" alt="Screenshot 2024-05-04 at 12 36 43" src="https://github.com/viccon/sturdyc/assets/12787673/1f630aed-2322-4d3a-9510-d582e0294488">
 Here we can how often we're able to serve from memory.
 
-<img width="942" alt="Screenshot 2024-05-04 at 12 37 39" src="https://github.com/creativecreature/sturdyc/assets/12787673/25187529-28fb-4c4e-8fe9-9fb48772e0c0">
+<img width="942" alt="Screenshot 2024-05-04 at 12 37 39" src="https://github.com/viccon/sturdyc/assets/12787673/25187529-28fb-4c4e-8fe9-9fb48772e0c0">
 This image displays the number of items we have cached.
 
-<img width="941" alt="Screenshot 2024-05-04 at 12 38 04" src="https://github.com/creativecreature/sturdyc/assets/12787673/b1359867-f1ef-4a09-8c75-d7d2360726f1">
+<img width="941" alt="Screenshot 2024-05-04 at 12 38 04" src="https://github.com/viccon/sturdyc/assets/12787673/b1359867-f1ef-4a09-8c75-d7d2360726f1">
 This chart shows the batch sizes for the buffered refreshes.
 
-<img width="940" alt="Screenshot 2024-05-04 at 12 38 20" src="https://github.com/creativecreature/sturdyc/assets/12787673/de7f00ee-b14d-443b-b69e-91e19665c252">
+<img width="940" alt="Screenshot 2024-05-04 at 12 38 20" src="https://github.com/viccon/sturdyc/assets/12787673/de7f00ee-b14d-443b-b69e-91e19665c252">
 And lastly, we can see the average batch size of our refreshes for two different data sources.
 
 You are also able to visualize evictions, forced evictions which occur when the
@@ -1360,14 +1360,14 @@ type assertions.
 
 If you want to avoid this, you can use any of the package level exports:
 
-- [`GetOrFetch`](https://pkg.go.dev/github.com/creativecreature/sturdyc#GetOrFetch)
-- [`GetOrFetchBatch`](https://pkg.go.dev/github.com/creativecreature/sturdyc#GetOrFetchBatch)
-- [`Passthrough`](https://pkg.go.dev/github.com/creativecreature/sturdyc#Passthrough)
-- [`PassthroughBatch`](https://pkg.go.dev/github.com/creativecreature/sturdyc#PassthroughBatch)
+- [`GetOrFetch`](https://pkg.go.dev/github.com/viccon/sturdyc#GetOrFetch)
+- [`GetOrFetchBatch`](https://pkg.go.dev/github.com/viccon/sturdyc#GetOrFetchBatch)
+- [`Passthrough`](https://pkg.go.dev/github.com/viccon/sturdyc#Passthrough)
+- [`PassthroughBatch`](https://pkg.go.dev/github.com/viccon/sturdyc#PassthroughBatch)
 
 They will take the cache, call the function for you, and perform the type
 conversions internally. If the type conversions were to fail, you'll get a
-[`ErrInvalidType`](https://pkg.go.dev/github.com/creativecreature/sturdyc#pkg-variables) error.
+[`ErrInvalidType`](https://pkg.go.dev/github.com/viccon/sturdyc#pkg-variables) error.
 
 Below is an example of what an API client that uses these functions could look
 like:
@@ -1406,4 +1406,4 @@ func (a *OrderAPI) DeliveryTime(ctx context.Context, ids []string) (map[string]t
 }
 ```
 
-The entire example is available [here.](https://github.com/creativecreature/sturdyc/tree/main/examples/generics)
+The entire example is available [here.](https://github.com/viccon/sturdyc/tree/main/examples/generics)

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/creativecreature/sturdyc"
+	"github.com/viccon/sturdyc"
 )
 
 func TestTimeBasedKeys(t *testing.T) {

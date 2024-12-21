@@ -1,4 +1,4 @@
-module github.com/creativecreature/sturdyc
+module github.com/viccon/sturdyc
 
 go 1.22
 

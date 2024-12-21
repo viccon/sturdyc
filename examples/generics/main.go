@@ -5,7 +5,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/creativecreature/sturdyc"
+	"github.com/viccon/sturdyc"
 )
 
 type OrderAPI struct {
