@@ -158,8 +158,8 @@ func (c *Client[T]) PermutatedKey(prefix string, permutationStruct interface{}) 
 }
 
 // BatchKeyFn provides a function that can be used in conjunction with
-// "GetOrFetchBatch". It takes in a prefix and returns a function that will
-// append the ID as a suffix for each item.
+// "GetOrFetchBatch". It takes in a prefix and returns a function that will format
+// a string with the prefix and id seperated by "-ID-" for each item.
 //
 // Parameters:
 //
@@ -167,7 +167,7 @@ func (c *Client[T]) PermutatedKey(prefix string, permutationStruct interface{}) 
 //
 // Returns:
 //
-//	A function that takes an ID and returns a cache key string with the given prefix and ID.
+//	A function that takes an ID and returns a cache key string with the given prefix and ID seperated by "-ID-".
 func (c *Client[T]) BatchKeyFn(prefix string) KeyFn {
 	return func(id string) string {
 		return fmt.Sprintf("%s-ID-%s", prefix, id)
@@ -189,7 +189,7 @@ func (c *Client[T]) BatchKeyFn(prefix string) KeyFn {
 //
 // Returns:
 //
-//	A function that takes an ID and returns a cache key string with the given prefix, permutation struct fields, and ID.
+//	A function that takes an ID and returns a cache key string with the given prefix and permutation struct fields followed by "-ID-" and the ID.
 func (c *Client[T]) PermutatedBatchKeyFn(prefix string, permutationStruct interface{}) KeyFn {
 	return func(id string) string {
 		key := c.PermutatedKey(prefix, permutationStruct)

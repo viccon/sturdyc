@@ -20,11 +20,12 @@ func NewAPI(c *sturdyc.Client[string]) *API {
 }
 
 func (a *API) GetBatch(ctx context.Context, ids []string) (map[string]string, error) {
-	// We are going to pass the cache a key function that prefixes each id.
+	// We are going to pass the cache a key function that prefixes each id with the provided prefix and "-ID-".
 	// This makes it possible to save the same id for different data sources.
 	cacheKeyFn := a.BatchKeyFn("some-prefix")
 
 	// The fetchFn is only going to retrieve the IDs that are not in the cache.
+	// The cacheMisses will contain the missing IDs and not the formatted keys.
 	fetchFn := func(_ context.Context, cacheMisses []string) (map[string]string, error) {
 		log.Printf("Cache miss. Fetching ids: %s\n", strings.Join(cacheMisses, ", "))
 		// Batch functions should return a map where the key is the id of the record.
