@@ -1,8 +1,3 @@
-# `NOTE:` Name change
-I just discovered that the username `viccon` had become available (which I’ve
-wanted for a really long time) so I decided to claim it. As a result, the cache
-is now located at https://github.com/viccon/sturdyc. Sorry for any inconvenience!
-
 ![sturdyC-fn-2](https://github.com/user-attachments/assets/2def120a-ad2b-4590-bef0-83c461af1b07)
 
 # `sturdyc`: a caching library for building sturdy systems
