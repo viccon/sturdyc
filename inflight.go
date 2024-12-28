@@ -32,9 +32,9 @@ func makeCall[T, V any](ctx context.Context, c *Client[T], key string, fn FetchF
 		c.inFlightMutex.Unlock()
 	}()
 
-	response, err := fn(ctx)
+	response, aliases, err := fn(ctx)
 	if err != nil && c.storeMissingRecords && errors.Is(err, ErrNotFound) {
-		c.StoreMissingRecord(key)
+		c.StoreMissingRecord(key, aliases)
 		call.err = ErrMissingRecord
 		return
 	}
@@ -52,7 +52,7 @@ func makeCall[T, V any](ctx context.Context, c *Client[T], key string, fn FetchF
 
 	call.err = nil
 	call.val = res
-	c.Set(key, res)
+	c.Set(key, res, aliases)
 }
 
 func callAndCache[V, T any](ctx context.Context, c *Client[T], key string, fn FetchFn[V]) (V, error) {
@@ -97,7 +97,7 @@ type makeBatchCallOpts[T, V any] struct {
 }
 
 func makeBatchCall[T, V any](ctx context.Context, c *Client[T], opts makeBatchCallOpts[T, V]) {
-	response, err := opts.fn(ctx, opts.ids)
+	response, aliases, err := opts.fn(ctx, opts.ids)
 	if err != nil && !errors.Is(err, errOnlyDistributedRecords) {
 		opts.call.err = err
 		return
@@ -115,7 +115,7 @@ func makeBatchCall[T, V any](ctx context.Context, c *Client[T], opts makeBatchCa
 	if c.storeMissingRecords && len(response) < len(opts.ids) && !errors.Is(err, errOnlyDistributedRecords) {
 		for _, id := range opts.ids {
 			if _, ok := response[id]; !ok {
-				c.StoreMissingRecord(opts.keyFn(id))
+				c.StoreMissingRecord(opts.keyFn(id), aliases[id])
 			}
 		}
 	}
@@ -127,7 +127,7 @@ func makeBatchCall[T, V any](ctx context.Context, c *Client[T], opts makeBatchCa
 			c.log.Error("sturdyc: invalid type for ID:" + id)
 			continue
 		}
-		c.Set(opts.keyFn(id), v)
+		c.Set(opts.keyFn(id), v, aliases[id])
 		opts.call.val[id] = v
 	}
 }

@@ -23,6 +23,8 @@ type shard[T any] struct {
 	capacity           int
 	ttl                time.Duration
 	entries            map[string]*entry[T]
+	entriesByAlias     map[string]string
+	aliasesByEntry     map[string][]string
 	evictionPercentage int
 }
 
@@ -34,6 +36,8 @@ func newShard[T any](capacity int, ttl time.Duration, evictionPercentage int, cf
 		ttl:                ttl,
 		entries:            make(map[string]*entry[T]),
 		evictionPercentage: evictionPercentage,
+		entriesByAlias:     make(map[string]string),
+		aliasesByEntry:     make(map[string][]string),
 	}
 }
 
@@ -72,11 +76,43 @@ func (s *shard[T]) forceEvict() {
 	entriesEvicted := 0
 	for key, e := range s.entries {
 		if e.expiresAt.Before(cutoff) {
-			delete(s.entries, key)
+			s.unsafeDelete(key)
 			entriesEvicted++
 		}
 	}
 	s.reportEntriesEvicted(entriesEvicted)
+}
+
+// should be called with a lock.
+func (s *shard[T]) unsafeDelete(key string) {
+	entry := s.entries[key]
+	if entry == nil {
+		return
+	}
+	aliases := s.aliasesByEntry[key]
+	for _, alias := range aliases {
+		delete(s.entriesByAlias, alias)
+	}
+	delete(s.aliasesByEntry, key)
+	delete(s.entries, key)
+}
+
+// look up an entry by key or alias
+// should be called with a lock.
+func (s *shard[T]) unsafeGetByKeyOrAlias(keyOrAlias string) (*entry[T], bool) {
+	// try a direct key lookup first
+	item, ok := s.entries[keyOrAlias]
+	if ok {
+		return item, true
+	}
+
+	// if there is no entry by key, try to find it by alias
+	entryKey := s.entriesByAlias[keyOrAlias]
+	if entryKey == "" {
+		return nil, false
+	}
+	item, ok = s.entries[entryKey]
+	return item, ok
 }
 
 // get retrieves attempts to retrieve a value from the shard.
@@ -93,7 +129,7 @@ func (s *shard[T]) forceEvict() {
 //	refresh: A boolean indicating if the value should be refreshed in the background.
 func (s *shard[T]) get(key string) (val T, exists, markedAsMissing, refresh bool) {
 	s.RLock()
-	item, ok := s.entries[key]
+	item, ok := s.unsafeGetByKeyOrAlias(key)
 	if !ok {
 		s.RUnlock()
 		return val, false, false, false
@@ -133,7 +169,7 @@ func (s *shard[T]) get(key string) (val T, exists, markedAsMissing, refresh bool
 
 // set writes a key-value pair to the shard and returns a
 // boolean indicating whether an eviction was performed.
-func (s *shard[T]) set(key string, value T, isMissingRecord bool) bool {
+func (s *shard[T]) set(key string, value T, isMissingRecord bool, aliases []string) bool {
 	s.Lock()
 	defer s.Unlock()
 
@@ -169,19 +205,33 @@ func (s *shard[T]) set(key string, value T, isMissingRecord bool) bool {
 		newEntry.numOfRefreshRetries = 0
 	}
 
-	s.entries[key] = newEntry
+	s.unsafeUpsert(newEntry, key, aliases)
 	return evict
+}
+
+func (s *shard[T]) unsafeUpsert(newEntry *entry[T], key string, aliases []string) {
+	// if the key already exists, temporarily remove it
+	if _, ok := s.entries[key]; ok {
+		s.unsafeDelete(key)
+	}
+
+	// insert the new entry and aliases
+	s.entries[key] = newEntry
+	for _, alias := range aliases {
+		s.entriesByAlias[alias] = key
+	}
+	s.aliasesByEntry[key] = aliases
 }
 
 // delete removes a key from the shard.
 func (s *shard[T]) delete(key string) {
 	s.Lock()
 	defer s.Unlock()
-	delete(s.entries, key)
+	s.unsafeDelete(key)
 }
 
 // keys returns all non-expired keys in the shard.
-func (s *shard[T]) keys() []string {
+func (s *shard[T]) keys(options ...func(key string) bool) []string {
 	s.RLock()
 	defer s.RUnlock()
 	keys := make([]string, 0, len(s.entries))
