@@ -60,8 +60,8 @@ func demonstrateGetOrFetchBatch(cacheClient *sturdyc.Client[int]) {
 		{"11", "12", "13", "14", "15"},
 	}
 
-	// We'll use a cache key function to add a prefix to the IDs. If we only used
-	// the IDs, we wouldn't be able to fetch the same IDs from multiple data sources.
+	// We are going use a cache key function that prefixes each id with the provided prefix and "-ID-".
+	// If we only used the IDs, we wouldn't be able to fetch the same IDs from multiple data sources.
 	keyPrefixFn := cacheClient.BatchKeyFn("my-data-source")
 
 	// Request the keys  for each batch.

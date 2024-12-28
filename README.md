@@ -317,7 +317,7 @@ IDs each:
 IDs can often be fetched from multiple data sources. Hence, we'll want to
 prefix the ID in order to make the cache key unique. The package provides more
 functionality for this that we'll see later on, but for now we'll use the most
-simple version which adds a string prefix to every ID:
+simple version which adds a string prefix together with a seperator to every ID:
 
 ```go
 	keyPrefixFn := cacheClient.BatchKeyFn("my-data-source")
@@ -803,11 +803,12 @@ func NewAPI(c *sturdyc.Client[string]) *API {
 }
 
 func (a *API) GetBatch(ctx context.Context, ids []string) (map[string]string, error) {
-	// We are going to use a cache a key function that prefixes each id.
+	// We are going to pass the cache a key function that prefixes each id with the provided prefix and "-ID-".
 	// This makes it possible to save the same id for different data sources.
 	cacheKeyFn := a.BatchKeyFn("some-prefix")
 
 	// The fetchFn is only going to retrieve the IDs that are not in the cache.
+	// The cacheMisses will contain the missing IDs and not the formatted keys.
 	fetchFn := func(_ context.Context, cacheMisses []string) (map[string]string, error) {
 		log.Printf("Cache miss. Fetching ids: %s\n", strings.Join(cacheMisses, ", "))
 		// Batch functions should return a map where the key is the id of the record.
