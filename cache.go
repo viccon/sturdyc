@@ -55,6 +55,7 @@ type Config struct {
 type Client[T any] struct {
 	*Config
 	shards             []*shard[T]
+	shardIndexByAlias  sync.Map
 	nextShard          int
 	inFlightMutex      sync.Mutex
 	inFlightBatchMutex sync.Mutex
@@ -71,8 +72,9 @@ type Client[T any] struct {
 //	`opts` allows for additional configurations to be applied to the cache client.
 func New[T any](capacity, numShards int, ttl time.Duration, evictionPercentage int, opts ...Option) *Client[T] {
 	client := &Client[T]{
-		inFlightMap:      make(map[string]*inFlightCall[T]),
-		inFlightBatchMap: make(map[string]*inFlightCall[map[string]T]),
+		inFlightMap:       make(map[string]*inFlightCall[T]),
+		inFlightBatchMap:  make(map[string]*inFlightCall[map[string]T]),
+		shardIndexByAlias: sync.Map{},
 	}
 
 	// Create a default configuration, and then apply the options.
@@ -146,13 +148,9 @@ func (c *Client[T]) getShardIndex(key string) int {
 // Concurrency performance note: a very short read lock is required to query each shard for
 // the alias.
 func (c *Client[T]) findShardIndexByAlias(key string) int {
-	for shardIndex, shard := range c.shards {
-		shard.RLock()
-		_, exists := shard.entryKeysByAlias[key]
-		shard.RUnlock()
-		if exists {
-			return shardIndex
-		}
+	shardIndex, ok := c.shardIndexByAlias.Load(key)
+	if ok {
+		return shardIndex.(int)
 	}
 	return -1
 }
@@ -246,26 +244,29 @@ func (c *Client[T]) GetManyKeyFn(ids []string, keyFn KeyFn) map[string]T {
 //	A boolean indicating if the set operation triggered an eviction.
 func (c *Client[T]) Set(key string, value T, opts ...SetOptions) bool {
 	key, aliases := c.set_applyOptions(key, opts)
-	c.set_aliasGuard(key, aliases)
-	shard := c.getShard(key)
+	shardIndex := c.getShardIndex(key)
+	c.set_aliasGuard(key, aliases, shardIndex)
+	shard := c.shards[shardIndex]
 	return shard.set(key, value, false, aliases)
 }
 
 // If any of the aliases exist on a different shard, this is an error
-func (c *Client[T]) set_aliasGuard(key string, aliases []string) {
-	shardIndex := c.getShardIndex(key)
-	for shardIndexToSearch, shard := range c.shards {
-		if shardIndexToSearch == shardIndex {
-			continue
-		}
-		shard.RLock()
-		for _, alias := range aliases {
-			if _, ok := shard.entryKeysByAlias[alias]; ok {
-				shard.RUnlock()
-				panic(fmt.Sprintf("alias '%s' already exists on key '%s'", alias, key))
+func (c *Client[T]) set_aliasGuard(key string, aliases []string, shardIndex int) {
+	for _, alias := range aliases {
+		aliasShardIndex, ok := c.shardIndexByAlias.Load(alias)
+		// slog.Info("aliasGuard", "alias", alias, "shardIndex", shardIndex, "key", key, "ok", ok)
+		if ok {
+			// slog.Info("aliasGuard", "alias", alias, "shardIndex", shardIndex, "key", key, "entryKeysByAlias", c.shards[shardIndex].entryKeysByAlias)
+			if aliasShardIndex.(int) != shardIndex {
+				panic(fmt.Sprintf("alias '%s' already exists in a different shard", alias))
 			}
+			// slog.Info("alias already exists", "alias", alias, "shardIndex", shardIndex, "key", key, "entryKeysByAlias", c.shards[shardIndex].entryKeysByAlias)
+			if c.shards[shardIndex].entryKeysByAlias[alias] != key {
+				panic(fmt.Sprintf("alias '%s' already exists for a different key", alias))
+			}
+		} else {
+			c.shardIndexByAlias.Store(alias, shardIndex)
 		}
-		shard.RUnlock()
 	}
 }
 
