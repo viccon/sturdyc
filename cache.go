@@ -10,10 +10,10 @@ import (
 )
 
 // FetchFn Fetch represents a function that can be used to fetch a single record from a data source.
-type FetchFn[T any] func(ctx context.Context) (T, []string, error)
+type FetchFn[T any] func(ctx context.Context) (T, error)
 
 // BatchFetchFn represents a function that can be used to fetch multiple records from a data source.
-type BatchFetchFn[T any] func(ctx context.Context, ids []string) (map[string]T, map[string][]string, error)
+type BatchFetchFn[T any] func(ctx context.Context, ids []string) (map[string]T, error)
 
 type BatchResponse[T any] map[string]T
 
@@ -203,16 +203,16 @@ func (c *Client[T]) GetManyKeyFn(ids []string, keyFn KeyFn) map[string]T {
 // Returns:
 //
 //	A boolean indicating if the set operation triggered an eviction.
-func (c *Client[T]) Set(key string, value T, aliases []string) bool {
+func (c *Client[T]) Set(key string, value T) bool {
 	shard := c.getShard(key)
-	return shard.set(key, value, false, aliases)
+	return shard.set(key, value, false)
 }
 
 // StoreMissingRecord writes a single value to the cache. Returns true if it triggered an eviction.
-func (c *Client[T]) StoreMissingRecord(key string, aliases []string) bool {
+func (c *Client[T]) StoreMissingRecord(key string) bool {
 	shard := c.getShard(key)
 	var zero T
-	return shard.set(key, zero, true, aliases)
+	return shard.set(key, zero, true)
 }
 
 // SetMany writes a map of key-value pairs to the cache.
@@ -224,10 +224,10 @@ func (c *Client[T]) StoreMissingRecord(key string, aliases []string) bool {
 // Returns:
 //
 //	A boolean indicating if any of the set operations triggered an eviction.
-func (c *Client[T]) SetMany(records map[string]T, aliases map[string][]string) bool {
+func (c *Client[T]) SetMany(records map[string]T) bool {
 	var triggeredEviction bool
 	for key, value := range records {
-		evicted := c.Set(key, value, aliases[key])
+		evicted := c.Set(key, value)
 		if evicted {
 			triggeredEviction = true
 		}
@@ -247,10 +247,10 @@ func (c *Client[T]) SetMany(records map[string]T, aliases map[string][]string) b
 // Returns:
 //
 //	A boolean indicating if any of the set operations triggered an eviction.
-func (c *Client[T]) SetManyKeyFn(records map[string]T, cacheKeyFn KeyFn, aliasesFn func(key string) []string) bool {
+func (c *Client[T]) SetManyKeyFn(records map[string]T, cacheKeyFn KeyFn) bool {
 	var triggeredEviction bool
 	for id, value := range records {
-		evicted := c.Set(cacheKeyFn(id), value, aliasesFn(id))
+		evicted := c.Set(cacheKeyFn(id), value)
 		if evicted {
 			triggeredEviction = true
 		}
