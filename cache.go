@@ -22,6 +22,15 @@ type BatchResponse[T any] map[string]T
 // operation returns. It is used to create unique cache keys.
 type KeyFn func(id string) string
 
+// ISturdyCItem is an optional interface cache items can implement to provide
+// additional information to the cache.
+type ISturdyCItem interface {
+	// GetCacheKey returns the primary key for the item.
+	GetCacheKey() string
+	// GetCacheAliasKeys returns the list of alias keys for the item.
+	GetCacheAliasKeys() []string
+}
+
 // Config represents the configuration that can be applied to the cache.
 type Config struct {
 	clock                      Clock
@@ -242,8 +251,8 @@ func (c *Client[T]) GetManyKeyFn(ids []string, keyFn KeyFn) map[string]T {
 // Returns:
 //
 //	A boolean indicating if the set operation triggered an eviction.
-func (c *Client[T]) Set(key string, value T, opts ...SetOptions) bool {
-	key, aliases := c.set_applyOptions(key, opts)
+func (c *Client[T]) Set(key string, value T) bool {
+	key, aliases := c.set_applyCacheItemInterface(key, value)
 	shardIndex := c.getShardIndex(key)
 	c.set_aliasGuard(key, aliases, shardIndex)
 	shard := c.shards[shardIndex]
@@ -271,46 +280,15 @@ func (c *Client[T]) set_aliasGuard(key string, aliases []string, shardIndex int)
 }
 
 // Iterate through SetOptions and apply
-func (c *Client[T]) set_applyOptions(key string, opts []SetOptions) (string, []string) {
-	aliases := c.set_buildRawAliases(opts)
-	key, aliases = c.set_applyKeyFns(key, aliases, opts)
-
-	return key, aliases
-}
-
-func (c *Client[T]) set_buildRawAliases(opts []SetOptions) []string {
-	var aliases []string
-	for _, opt := range opts {
-		if opt.Aliases != nil {
-			aliases = append(aliases, opt.Aliases...)
-		}
+func (c *Client[T]) set_applyCacheItemInterface(key string, value T) (string, []string) {
+	item, ok := any(value).(ISturdyCItem)
+	if ok {
+		key := item.GetCacheKey()
+		aliases := item.GetCacheAliasKeys()
+		return key, aliases
 	}
-	return aliases
-}
 
-func (c *Client[T]) set_applyKeyFns(key string, aliases []string, opts []SetOptions) (string, []string) {
-	for _, opt := range opts {
-		if opt.KeyFn != nil {
-			key = opt.KeyFn(key)
-			for i, alias := range aliases {
-				aliases[i] = opt.KeyFn(alias)
-			}
-		}
-	}
-	return key, aliases
-}
-
-type SetOptions struct {
-	Aliases []string
-	KeyFn   KeyFn
-}
-
-func WithAliasKeys(aliases []string) SetOptions {
-	return SetOptions{Aliases: aliases}
-}
-
-func WithSetKeyFn(keyFn KeyFn) SetOptions {
-	return SetOptions{KeyFn: keyFn}
+	return key, nil
 }
 
 // StoreMissingRecord writes a single value to the cache. Returns true if it triggered an eviction.
@@ -329,10 +307,10 @@ func (c *Client[T]) StoreMissingRecord(key string) bool {
 // Returns:
 //
 //	A boolean indicating if any of the set operations triggered an eviction.
-func (c *Client[T]) SetMany(records map[string]T, opts ...SetOptions) bool {
+func (c *Client[T]) SetMany(records map[string]T) bool {
 	var triggeredEviction bool
 	for key, value := range records {
-		evicted := c.Set(key, value, opts...)
+		evicted := c.Set(key, value)
 		if evicted {
 			triggeredEviction = true
 		}
@@ -340,7 +318,6 @@ func (c *Client[T]) SetMany(records map[string]T, opts ...SetOptions) bool {
 	return triggeredEviction
 }
 
-// Deprecated: Use SetMany with WithKeyFn instead.
 // SetManyKeyFn follows the same API as GetOrFetchBatch and PassthroughBatch.
 // It takes a map of records where the keyFn is applied to each key in the map
 // before it's stored in the cache.
@@ -353,8 +330,18 @@ func (c *Client[T]) SetMany(records map[string]T, opts ...SetOptions) bool {
 // Returns:
 //
 //	A boolean indicating if any of the set operations triggered an eviction.
+//
+// Note: Alternatively, you may implement ISturdyCItem on your cache item type
+// to provide the cache key and alias keys.
 func (c *Client[T]) SetManyKeyFn(records map[string]T, cacheKeyFn KeyFn) bool {
-	return c.SetMany(records, WithSetKeyFn(cacheKeyFn))
+	var triggeredEviction bool
+	for id, value := range records {
+		evicted := c.Set(cacheKeyFn(id), value)
+		if evicted {
+			triggeredEviction = true
+		}
+	}
+	return triggeredEviction
 }
 
 // ScanKeys returns a list of all keys in the cache.

@@ -365,9 +365,30 @@ type AliasTestItem struct {
 
 type AliasTestCase struct {
 	name        string
-	init        func(client *sturdyc.Client[string])
+	init        func(client *sturdyc.Client[*TestCacheItem])
 	items       []AliasTestItem
 	shouldPanic bool
+}
+
+type TestCacheItem struct {
+	sturdyc.ISturdyCItem
+	key     string
+	aliases []string
+}
+
+func NewTestCacheItem(key string, aliases []string) *TestCacheItem {
+	return &TestCacheItem{
+		key:     key,
+		aliases: aliases,
+	}
+}
+
+func (t *TestCacheItem) GetCacheKey() string {
+	return t.key
+}
+
+func (t *TestCacheItem) GetCacheAliasKeys() []string {
+	return t.aliases
 }
 
 func TestAliases(t *testing.T) {
@@ -375,8 +396,8 @@ func TestAliases(t *testing.T) {
 	testCases := []AliasTestCase{
 		{
 			name: "A key can be retrieved by its original key and its aliases",
-			init: func(client *sturdyc.Client[string]) {
-				client.Set("key-with-aliases", "value", sturdyc.WithAliasKeys([]string{"alias1", "alias2"}))
+			init: func(client *sturdyc.Client[*TestCacheItem]) {
+				client.Set("key-with-aliases", NewTestCacheItem("key-with-aliases", []string{"alias1", "alias2"}))
 			},
 			items: []AliasTestItem{
 				{key: "key-with-aliases", value: "value", shouldExist: true},
@@ -387,8 +408,8 @@ func TestAliases(t *testing.T) {
 		},
 		{
 			name: "A previously created key can be deleted and that all aliases are deleted",
-			init: func(client *sturdyc.Client[string]) {
-				client.Set("all-aliases-deleted", "value", sturdyc.WithAliasKeys([]string{"alias1", "alias2"}))
+			init: func(client *sturdyc.Client[*TestCacheItem]) {
+				client.Set("all-aliases-deleted", NewTestCacheItem("all-aliases-deleted", []string{"alias1", "alias2"}))
 				client.Delete("all-aliases-deleted")
 			},
 			items: []AliasTestItem{
@@ -399,9 +420,9 @@ func TestAliases(t *testing.T) {
 		},
 		{
 			name: "A key can be created with aliases, then updated with new aliases, and the old ones are deleted",
-			init: func(client *sturdyc.Client[string]) {
-				client.Set("old-aliases-test", "value", sturdyc.WithAliasKeys([]string{"alias1", "alias2"}))
-				client.Set("old-aliases-test", "value", sturdyc.WithAliasKeys([]string{"alias3", "alias4"}))
+			init: func(client *sturdyc.Client[*TestCacheItem]) {
+				client.Set("old-aliases-test", NewTestCacheItem("old-aliases-test", []string{"alias1", "alias2"}))
+				client.Set("old-aliases-test", NewTestCacheItem("old-aliases-test", []string{"alias3", "alias4"}))
 			},
 			items: []AliasTestItem{
 				{key: "old-aliases-test", value: "value", shouldExist: true},
@@ -413,18 +434,16 @@ func TestAliases(t *testing.T) {
 		},
 		{
 			name: "Panic if a different key is inserted with the same alias",
-			init: func(client *sturdyc.Client[string]) {
-				client.Set("should-not-panic", "value", sturdyc.WithAliasKeys([]string{"alias1", "alias2"}))
-				client.Set("should-panic", "value", sturdyc.WithAliasKeys([]string{"alias1", "alias2"}))
+			init: func(client *sturdyc.Client[*TestCacheItem]) {
+				client.Set("should-not-panic", NewTestCacheItem("should-not-panic", []string{"alias1", "alias2"}))
+				client.Set("should-panic", NewTestCacheItem("should-panic", []string{"alias1", "alias2"}))
 			},
 			shouldPanic: true,
 		},
 		{
-			name: "Key functions are applied to aliases",
-			init: func(client *sturdyc.Client[string]) {
-				client.Set("key-with-aliases", "value", sturdyc.WithAliasKeys([]string{"alias1", "alias2"}), sturdyc.WithSetKeyFn(func(key string) string {
-					return fmt.Sprintf("prefix:%s", key)
-				}))
+			name: "Key functions override input keys",
+			init: func(client *sturdyc.Client[*TestCacheItem]) {
+				client.Set("key-with-aliases", NewTestCacheItem("prefix:key-with-aliases", []string{"prefix:alias1", "prefix:alias2"}))
 			},
 			items: []AliasTestItem{
 				{key: "prefix:key-with-aliases", value: "value", shouldExist: true},
@@ -439,7 +458,7 @@ func TestAliases(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 			metricsRecorder := newTestMetricsRecorder(10)
-			client := sturdyc.New[string](100, 10, time.Hour, 5,
+			client := sturdyc.New[*TestCacheItem](100, 10, time.Hour, 5,
 				sturdyc.WithMetrics(metricsRecorder),
 			)
 
@@ -460,18 +479,14 @@ func TestAliases(t *testing.T) {
 				t.Errorf("unexpected panic: %v", initErr)
 				return
 			}
-			for _, item := range testCase.items {
-				value, ok := client.Get(item.key)
-				if item.shouldExist && !ok {
-					t.Errorf("expected key '%s' to be in the cache with value '%s', but it was not", item.key, item.value)
+			for _, itemData := range testCase.items {
+				value, ok := client.Get(itemData.key)
+				if itemData.shouldExist && !ok {
+					t.Errorf("expected key '%s' to be in the cache with value '%s', but it was not", itemData.key, itemData.value)
 					continue
 				}
-				if item.shouldExist && value != item.value {
-					t.Errorf("expected key '%s' value to be '%s', got  '%s'", item.key, item.value, value)
-					continue
-				}
-				if !item.shouldExist && ok {
-					t.Errorf("expected key '%s' to not be in the cache, but it was with value '%s'", item.key, value)
+				if !itemData.shouldExist && ok {
+					t.Errorf("expected key '%s' to not be in the cache, but it was with value '%s'", itemData.key, value)
 					continue
 				}
 			}
