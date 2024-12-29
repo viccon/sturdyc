@@ -2,6 +2,7 @@ package sturdyc
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -118,10 +119,33 @@ func (c *Client[T]) performContinuousEvictions() {
 
 // getShard returns the shard that should be used for the specified key.
 func (c *Client[T]) getShard(key string) *shard[T] {
-	hash := xxhash.Sum64String(key)
-	shardIndex := hash % uint64(len(c.shards))
-	c.reportShardIndex(int(shardIndex))
+	shardIndex := c.getShardIndex(key)
 	return c.shards[shardIndex]
+}
+
+func (c *Client[T]) getShardIndex(key string) int {
+	// They key could be an alias, so let's first search for the shardIndex by alias
+	shardIndex := c.findShardIndexByAlias(key)
+	if shardIndex == -1 {
+		// If the key is not a known alias, it may be a primary key.
+		// We can use the hash to determine the shard index.
+		hash := xxhash.Sum64String(key)
+		shardIndex = int(hash % uint64(len(c.shards)))
+	}
+	c.reportShardIndex(shardIndex)
+	return shardIndex
+}
+
+func (c *Client[T]) findShardIndexByAlias(key string) int {
+	for shardIndex, shard := range c.shards {
+		shard.RLock()
+		_, exists := shard.entryKeysByAlias[key]
+		shard.RUnlock()
+		if exists {
+			return shardIndex
+		}
+	}
+	return -1
 }
 
 // getWithState retrieves a single value from the cache and returns additional
@@ -150,6 +174,14 @@ func (c *Client[T]) Get(key string) (T, bool) {
 	return val, ok && !markedAsMissing
 }
 
+type GetOptions struct {
+	KeyFn KeyFn
+}
+
+func WithGetKeyFn(keyFn KeyFn) GetOptions {
+	return GetOptions{KeyFn: keyFn}
+}
+
 // GetMany retrieves multiple values from the cache.
 //
 // Parameters:
@@ -159,9 +191,14 @@ func (c *Client[T]) Get(key string) (T, bool) {
 // Returns:
 //
 //	A map of keys to their corresponding values.
-func (c *Client[T]) GetMany(keys []string) map[string]T {
+func (c *Client[T]) GetMany(keys []string, opts ...GetOptions) map[string]T {
 	records := make(map[string]T, len(keys))
 	for _, key := range keys {
+		for _, opt := range opts {
+			if opt.KeyFn != nil {
+				key = opt.KeyFn(key)
+			}
+		}
 		if value, ok := c.Get(key); ok {
 			records[key] = value
 		}
@@ -169,6 +206,7 @@ func (c *Client[T]) GetMany(keys []string) map[string]T {
 	return records
 }
 
+// Deprecated: Use GetMany with WithGetKeyFn instead.
 // GetManyKeyFn follows the same API as GetOrFetchBatch and PassthroughBatch.
 // You provide it with a slice of IDs and a keyFn, which is applied to create
 // the cache key. The returned map uses the IDs as keys instead of the cache
@@ -203,16 +241,55 @@ func (c *Client[T]) GetManyKeyFn(ids []string, keyFn KeyFn) map[string]T {
 // Returns:
 //
 //	A boolean indicating if the set operation triggered an eviction.
-func (c *Client[T]) Set(key string, value T) bool {
+func (c *Client[T]) Set(key string, value T, opts ...SetOptions) bool {
+	var aliases []string
+	for _, opt := range opts {
+		if opt.KeyFn != nil {
+			key = opt.KeyFn(key)
+		}
+		if opt.Aliases != nil {
+			aliases = append(aliases, opt.Aliases...)
+		}
+	}
+
+	// If any of the aliases exist on a different shard, this is an error
+	shardIndex := c.getShardIndex(key)
+	for shardIndexToSearch, shard := range c.shards {
+		if shardIndexToSearch == shardIndex {
+			continue
+		}
+		shard.RLock()
+		for _, alias := range aliases {
+			if _, ok := shard.entryKeysByAlias[alias]; ok {
+				shard.RUnlock()
+				panic(fmt.Sprintf("alias '%s' already exists on key '%s'", alias, key))
+			}
+		}
+		shard.RUnlock()
+	}
+
 	shard := c.getShard(key)
-	return shard.set(key, value, false)
+	return shard.set(key, value, false, aliases)
+}
+
+type SetOptions struct {
+	Aliases []string
+	KeyFn   KeyFn
+}
+
+func WithAliasKeys(aliases []string) SetOptions {
+	return SetOptions{Aliases: aliases}
+}
+
+func WithSetKeyFn(keyFn KeyFn) SetOptions {
+	return SetOptions{KeyFn: keyFn}
 }
 
 // StoreMissingRecord writes a single value to the cache. Returns true if it triggered an eviction.
 func (c *Client[T]) StoreMissingRecord(key string) bool {
 	shard := c.getShard(key)
 	var zero T
-	return shard.set(key, zero, true)
+	return shard.set(key, zero, true, nil)
 }
 
 // SetMany writes a map of key-value pairs to the cache.
@@ -224,10 +301,10 @@ func (c *Client[T]) StoreMissingRecord(key string) bool {
 // Returns:
 //
 //	A boolean indicating if any of the set operations triggered an eviction.
-func (c *Client[T]) SetMany(records map[string]T) bool {
+func (c *Client[T]) SetMany(records map[string]T, opts ...SetOptions) bool {
 	var triggeredEviction bool
 	for key, value := range records {
-		evicted := c.Set(key, value)
+		evicted := c.Set(key, value, opts...)
 		if evicted {
 			triggeredEviction = true
 		}
@@ -235,6 +312,7 @@ func (c *Client[T]) SetMany(records map[string]T) bool {
 	return triggeredEviction
 }
 
+// Deprecated: Use SetMany with WithKeyFn instead.
 // SetManyKeyFn follows the same API as GetOrFetchBatch and PassthroughBatch.
 // It takes a map of records where the keyFn is applied to each key in the map
 // before it's stored in the cache.
@@ -248,14 +326,7 @@ func (c *Client[T]) SetMany(records map[string]T) bool {
 //
 //	A boolean indicating if any of the set operations triggered an eviction.
 func (c *Client[T]) SetManyKeyFn(records map[string]T, cacheKeyFn KeyFn) bool {
-	var triggeredEviction bool
-	for id, value := range records {
-		evicted := c.Set(cacheKeyFn(id), value)
-		if evicted {
-			triggeredEviction = true
-		}
-	}
-	return triggeredEviction
+	return c.SetMany(records, WithSetKeyFn(cacheKeyFn))
 }
 
 // ScanKeys returns a list of all keys in the cache.

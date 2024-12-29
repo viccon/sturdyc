@@ -1,6 +1,7 @@
 package sturdyc_test
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -353,5 +354,114 @@ func TestReportsMetricsForHitsAndMisses(t *testing.T) {
 
 	if metricsRecorder.cacheMisses != 1 {
 		t.Errorf("expected 1 cache miss, got %d", metricsRecorder.cacheMisses)
+	}
+}
+
+type AliasTestItem struct {
+	key         string
+	value       string
+	shouldExist bool
+}
+
+type AliasTestCase struct {
+	name        string
+	init        func(client *sturdyc.Client[string])
+	items       []AliasTestItem
+	shouldPanic bool
+}
+
+func TestAliases(t *testing.T) {
+
+	testCases := []AliasTestCase{
+		{
+			name: "A key can be retrieved by its original key and its aliases",
+			init: func(client *sturdyc.Client[string]) {
+				client.Set("key-with-aliases", "value", sturdyc.WithAliasKeys([]string{"alias1", "alias2"}))
+			},
+			items: []AliasTestItem{
+				{key: "key-with-aliases", value: "value", shouldExist: true},
+				{key: "alias1", value: "value", shouldExist: true},
+				{key: "alias2", value: "value", shouldExist: true},
+				{key: "alias3", value: "", shouldExist: false},
+			},
+		},
+		{
+			name: "A previously created key can be deleted and that all aliases are deleted",
+			init: func(client *sturdyc.Client[string]) {
+				client.Set("all-aliases-deleted", "value", sturdyc.WithAliasKeys([]string{"alias1", "alias2"}))
+				client.Delete("all-aliases-deleted")
+			},
+			items: []AliasTestItem{
+				{key: "all-aliases-deleted", value: "", shouldExist: false},
+				{key: "alias1", value: "", shouldExist: false},
+				{key: "alias2", value: "", shouldExist: false},
+			},
+		},
+		{
+			name: "A key can be created with aliases, then updated with new aliases, and the old ones are deleted",
+			init: func(client *sturdyc.Client[string]) {
+				client.Set("old-aliases-test", "value", sturdyc.WithAliasKeys([]string{"alias1", "alias2"}))
+				client.Set("old-aliases-test", "value", sturdyc.WithAliasKeys([]string{"alias3", "alias4"}))
+			},
+			items: []AliasTestItem{
+				{key: "old-aliases-test", value: "value", shouldExist: true},
+				{key: "alias1", value: "", shouldExist: false},
+				{key: "alias2", value: "", shouldExist: false},
+				{key: "alias3", value: "value", shouldExist: true},
+				{key: "alias4", value: "value", shouldExist: true},
+			},
+		},
+		{
+			name: "Panic if a different key is inserted with the same alias",
+			init: func(client *sturdyc.Client[string]) {
+				client.Set("should-not-panic", "value", sturdyc.WithAliasKeys([]string{"alias1", "alias2"}))
+				client.Set("should-panic", "value", sturdyc.WithAliasKeys([]string{"alias1", "alias2"}))
+			},
+			shouldPanic: true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			metricsRecorder := newTestMetricsRecorder(10)
+			client := sturdyc.New[string](100, 10, time.Hour, 5,
+				sturdyc.WithMetrics(metricsRecorder),
+			)
+
+			initErr := func() (err error) {
+				defer func() {
+					if r := recover(); r != nil {
+						err = fmt.Errorf("panic occurred: %v", r)
+					}
+				}()
+				testCase.init(client)
+				return nil
+			}()
+			if testCase.shouldPanic && initErr == nil {
+				t.Errorf("expected panic, but no panic occurred")
+				return
+			}
+			if !testCase.shouldPanic && initErr != nil {
+				t.Errorf("unexpected panic: %v", initErr)
+				return
+			}
+			for _, item := range testCase.items {
+				value, ok := client.Get(item.key)
+				if item.shouldExist && !ok {
+					t.Errorf("expected key '%s' to be in the cache with value '%s', but it was not", item.key, item.value)
+					continue
+				}
+				if item.shouldExist && value != item.value {
+					t.Errorf("expected key '%s' value to be '%s', got  '%s'", item.key, item.value, value)
+					continue
+				}
+				if !item.shouldExist && ok {
+					t.Errorf("expected key '%s' to not be in the cache, but it was with value '%s'", item.key, value)
+					continue
+				}
+			}
+		})
 	}
 }
