@@ -123,6 +123,9 @@ func (c *Client[T]) getShard(key string) *shard[T] {
 	return c.shards[shardIndex]
 }
 
+// getShardIndex returns the shard index that should be used for the specified key.
+// It first searches for the shard index by alias, and if the key is not a known alias,
+
 func (c *Client[T]) getShardIndex(key string) int {
 	// They key could be an alias, so let's first search for the shardIndex by alias
 	shardIndex := c.findShardIndexByAlias(key)
@@ -136,6 +139,12 @@ func (c *Client[T]) getShardIndex(key string) int {
 	return shardIndex
 }
 
+// findShardIndexByAlias returns the shard index that should be used for the specified key.
+// It first searches for the shard index by alias, and if the key is not a known alias,
+// it returns -1.
+//
+// Concurrency performance note: a very short read lock is required to query each shard for
+// the alias.
 func (c *Client[T]) findShardIndexByAlias(key string) int {
 	for shardIndex, shard := range c.shards {
 		shard.RLock()
@@ -167,7 +176,12 @@ func (c *Client[T]) getWithState(key string) (value T, exists, markedAsMissing, 
 // Returns:
 //
 //	The value corresponding to the key and a boolean indicating if the value was found.
-func (c *Client[T]) Get(key string) (T, bool) {
+func (c *Client[T]) Get(key string, opts ...GetOptions) (T, bool) {
+	for _, opt := range opts {
+		if opt.KeyFn != nil {
+			key = opt.KeyFn(key)
+		}
+	}
 	shard := c.getShard(key)
 	val, ok, markedAsMissing, refresh := shard.get(key)
 	c.reportCacheHits(ok, markedAsMissing, refresh)
@@ -194,12 +208,7 @@ func WithGetKeyFn(keyFn KeyFn) GetOptions {
 func (c *Client[T]) GetMany(keys []string, opts ...GetOptions) map[string]T {
 	records := make(map[string]T, len(keys))
 	for _, key := range keys {
-		for _, opt := range opts {
-			if opt.KeyFn != nil {
-				key = opt.KeyFn(key)
-			}
-		}
-		if value, ok := c.Get(key); ok {
+		if value, ok := c.Get(key, opts...); ok {
 			records[key] = value
 		}
 	}
