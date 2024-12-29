@@ -419,6 +419,19 @@ func TestAliases(t *testing.T) {
 			},
 			shouldPanic: true,
 		},
+		{
+			name: "Key functions are applied to aliases",
+			init: func(client *sturdyc.Client[string]) {
+				client.Set("key-with-aliases", "value", sturdyc.WithAliasKeys([]string{"alias1", "alias2"}), sturdyc.WithSetKeyFn(func(key string) string {
+					return fmt.Sprintf("prefix:%s", key)
+				}))
+			},
+			items: []AliasTestItem{
+				{key: "prefix:key-with-aliases", value: "value", shouldExist: true},
+				{key: "prefix:alias1", value: "value", shouldExist: true},
+				{key: "prefix:alias2", value: "value", shouldExist: true},
+			},
+		},
 	}
 
 	for _, testCase := range testCases {

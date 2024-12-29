@@ -231,13 +231,7 @@ func (c *Client[T]) GetMany(keys []string, opts ...GetOptions) map[string]T {
 //
 //	A map of IDs to their corresponding values.
 func (c *Client[T]) GetManyKeyFn(ids []string, keyFn KeyFn) map[string]T {
-	records := make(map[string]T, len(ids))
-	for _, id := range ids {
-		if value, ok := c.Get(keyFn(id)); ok {
-			records[id] = value
-		}
-	}
-	return records
+	return c.GetMany(ids, WithGetKeyFn(keyFn))
 }
 
 // Set writes a single value to the cache.
@@ -251,17 +245,14 @@ func (c *Client[T]) GetManyKeyFn(ids []string, keyFn KeyFn) map[string]T {
 //
 //	A boolean indicating if the set operation triggered an eviction.
 func (c *Client[T]) Set(key string, value T, opts ...SetOptions) bool {
-	var aliases []string
-	for _, opt := range opts {
-		if opt.KeyFn != nil {
-			key = opt.KeyFn(key)
-		}
-		if opt.Aliases != nil {
-			aliases = append(aliases, opt.Aliases...)
-		}
-	}
+	key, aliases := c.set_applyOptions(key, opts)
+	c.set_aliasGuard(key, aliases)
+	shard := c.getShard(key)
+	return shard.set(key, value, false, aliases)
+}
 
-	// If any of the aliases exist on a different shard, this is an error
+// If any of the aliases exist on a different shard, this is an error
+func (c *Client[T]) set_aliasGuard(key string, aliases []string) {
 	shardIndex := c.getShardIndex(key)
 	for shardIndexToSearch, shard := range c.shards {
 		if shardIndexToSearch == shardIndex {
@@ -276,9 +267,36 @@ func (c *Client[T]) Set(key string, value T, opts ...SetOptions) bool {
 		}
 		shard.RUnlock()
 	}
+}
 
-	shard := c.getShard(key)
-	return shard.set(key, value, false, aliases)
+// Iterate through SetOptions and apply
+func (c *Client[T]) set_applyOptions(key string, opts []SetOptions) (string, []string) {
+	aliases := c.set_buildRawAliases(opts)
+	key, aliases = c.set_applyKeyFns(key, aliases, opts)
+
+	return key, aliases
+}
+
+func (c *Client[T]) set_buildRawAliases(opts []SetOptions) []string {
+	var aliases []string
+	for _, opt := range opts {
+		if opt.Aliases != nil {
+			aliases = append(aliases, opt.Aliases...)
+		}
+	}
+	return aliases
+}
+
+func (c *Client[T]) set_applyKeyFns(key string, aliases []string, opts []SetOptions) (string, []string) {
+	for _, opt := range opts {
+		if opt.KeyFn != nil {
+			key = opt.KeyFn(key)
+			for i, alias := range aliases {
+				aliases[i] = opt.KeyFn(alias)
+			}
+		}
+	}
+	return key, aliases
 }
 
 type SetOptions struct {
