@@ -183,24 +183,11 @@ func (c *Client[T]) getWithState(key string) (value T, exists, markedAsMissing, 
 // Returns:
 //
 //	The value corresponding to the key and a boolean indicating if the value was found.
-func (c *Client[T]) Get(key string, opts ...GetOptions) (T, bool) {
-	for _, opt := range opts {
-		if opt.KeyFn != nil {
-			key = opt.KeyFn(key)
-		}
-	}
+func (c *Client[T]) Get(key string) (T, bool) {
 	shard := c.getShard(key)
 	val, ok, markedAsMissing, refresh := shard.get(key)
 	c.reportCacheHits(ok, markedAsMissing, refresh)
 	return val, ok && !markedAsMissing
-}
-
-type GetOptions struct {
-	KeyFn KeyFn
-}
-
-func WithGetKeyFn(keyFn KeyFn) GetOptions {
-	return GetOptions{KeyFn: keyFn}
 }
 
 // GetMany retrieves multiple values from the cache.
@@ -212,17 +199,16 @@ func WithGetKeyFn(keyFn KeyFn) GetOptions {
 // Returns:
 //
 //	A map of keys to their corresponding values.
-func (c *Client[T]) GetMany(keys []string, opts ...GetOptions) map[string]T {
+func (c *Client[T]) GetMany(keys []string) map[string]T {
 	records := make(map[string]T, len(keys))
 	for _, key := range keys {
-		if value, ok := c.Get(key, opts...); ok {
+		if value, ok := c.Get(key); ok {
 			records[key] = value
 		}
 	}
 	return records
 }
 
-// Deprecated: Use GetMany with WithGetKeyFn instead.
 // GetManyKeyFn follows the same API as GetOrFetchBatch and PassthroughBatch.
 // You provide it with a slice of IDs and a keyFn, which is applied to create
 // the cache key. The returned map uses the IDs as keys instead of the cache
@@ -237,8 +223,16 @@ func (c *Client[T]) GetMany(keys []string, opts ...GetOptions) map[string]T {
 // Returns:
 //
 //	A map of IDs to their corresponding values.
+//
+// Alternatively, you may implement ISturdyCItem on your cache item type
 func (c *Client[T]) GetManyKeyFn(ids []string, keyFn KeyFn) map[string]T {
-	return c.GetMany(ids, WithGetKeyFn(keyFn))
+	records := make(map[string]T, len(ids))
+	for _, id := range ids {
+		if value, ok := c.Get(keyFn(id)); ok {
+			records[id] = value
+		}
+	}
+	return records
 }
 
 // Set writes a single value to the cache.
