@@ -56,11 +56,12 @@ func WithMissingRecordStorage() Option {
 // gets scheduled when the key is requested again after a random time between
 // minRefreshTime and maxRefreshTime. This is an important distinction because
 // it means that the cache won't just naively refresh every key it's ever seen.
-func WithEarlyRefreshes(minRefreshTime, maxRefreshTime, retryBaseDelay time.Duration) Option {
+func WithEarlyRefreshes(minRefreshTime, maxRefreshTime, synchronousRefresthTime, retryBaseDelay time.Duration) Option {
 	return func(c *Config) {
-		c.refreshInBackground = true
+		c.earlyRefreshes = true
 		c.minRefreshTime = minRefreshTime
 		c.maxRefreshTime = maxRefreshTime
+		c.synchronousRefreshTime = synchronousRefresthTime
 		c.retryBaseDelay = retryBaseDelay
 	}
 }
@@ -161,7 +162,7 @@ func validateConfig(capacity, numShards int, ttl time.Duration, evictionPercenta
 		panic("evictionPercentage must be between 0 and 100")
 	}
 
-	if !cfg.refreshInBackground && cfg.bufferRefreshes {
+	if !cfg.earlyRefreshes && cfg.bufferRefreshes {
 		panic("refresh buffering requires background refreshes to be enabled")
 	}
 
@@ -179,6 +180,10 @@ func validateConfig(capacity, numShards int, ttl time.Duration, evictionPercenta
 
 	if cfg.minRefreshTime > cfg.maxRefreshTime {
 		panic("minRefreshTime must be less than or equal to maxRefreshTime")
+	}
+
+	if cfg.maxRefreshTime > cfg.synchronousRefreshTime {
+		panic("maxRefreshTime must be less than or equal to synchronousRefreshTime")
 	}
 
 	if cfg.retryBaseDelay < 0 {

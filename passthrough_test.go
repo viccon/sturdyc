@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/viccon/sturdyc"
 	"github.com/google/go-cmp/cmp"
+	"github.com/viccon/sturdyc"
 )
 
 func TestPassthrough(t *testing.T) {

@@ -19,9 +19,10 @@ const (
 
 // Configuration for the early in-memory refreshes.
 const (
-	minRefreshTime = 2 * time.Second
-	maxRefreshTime = 4 * time.Second
-	retryBaseDelay = 5 * time.Second
+	minRefreshTime         = 2 * time.Second
+	maxRefreshTime         = 4 * time.Second
+	synchronousRefreshTime = 30 * time.Second
+	retryBaseDelay         = 5 * time.Second
 )
 
 // Configuration for the refresh coalescing.
@@ -36,7 +37,7 @@ const refreshAfter = time.Second
 func newAPIClient(distributedStorage sturdyc.DistributedStorageWithDeletions) *apiClient {
 	return &apiClient{
 		cache: sturdyc.New[any](capacity, numberOfShards, ttl, percentageOfRecordsToEvictWhenFull,
-			sturdyc.WithEarlyRefreshes(minRefreshTime, maxRefreshTime, retryBaseDelay),
+			sturdyc.WithEarlyRefreshes(minRefreshTime, maxRefreshTime, synchronousRefreshTime, retryBaseDelay),
 			sturdyc.WithRefreshCoalescing(idealBufferSize, bufferTimeout),
 			sturdyc.WithDistributedStorageEarlyRefreshes(distributedStorage, refreshAfter),
 			// NOTE: Uncommenting this line will make the cache mark the records as

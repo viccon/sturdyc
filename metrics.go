@@ -6,7 +6,9 @@ type MetricsRecorder interface {
 	// CacheMiss is called for every key that results in a cache miss.
 	CacheMiss()
 	// Refresh is called when a get operation results in a refresh.
-	Refresh()
+	BackgroundRefresh()
+	// SynchronousRefresh is called when a get operation results in a synchronous refresh.
+	SynchronousRefresh()
 	// MissingRecord is called every time the cache is asked to
 	// look up a key which has been marked as missing.
 	MissingRecord()
@@ -31,7 +33,7 @@ type DistributedMetricsRecorder interface {
 	DistributedCacheMiss()
 	// DistributedRefresh is called when we retrieve a record from
 	// the distributed storage that should be refreshed.
-	DistributedRefresh()
+	DistributedRefresh() // TODO: Should this be renamed to DistributedBackgroundRefresh? And should we add DistributedSynchronousRefresh?
 	// DistributedMissingRecord is called when we retrieve a record from the
 	// distributed storage that has been marked as a missing record.
 	DistributedMissingRecord()
@@ -71,7 +73,7 @@ func (s *shard[T]) reportEntriesEvicted(n int) {
 }
 
 // reportCacheHits is used to report cache hits and misses to the metrics recorder.
-func (c *Client[T]) reportCacheHits(cacheHit, missingRecord, refresh bool) {
+func (c *Client[T]) reportCacheHits(cacheHit, missingRecord, backgroundRefresh, synchronousRefresh bool) {
 	if c.metricsRecorder == nil {
 		return
 	}
@@ -80,8 +82,12 @@ func (c *Client[T]) reportCacheHits(cacheHit, missingRecord, refresh bool) {
 		c.metricsRecorder.MissingRecord()
 	}
 
-	if refresh {
-		c.metricsRecorder.Refresh()
+	if backgroundRefresh {
+		c.metricsRecorder.BackgroundRefresh()
+	}
+
+	if synchronousRefresh {
+		c.metricsRecorder.SynchronousRefresh()
 	}
 
 	if !cacheHit {

@@ -22,9 +22,10 @@ const (
 
 // Configuration for the early in-memory refreshes.
 const (
-	minRefreshTime = 100 * time.Millisecond
-	maxRefreshTime = 500 * time.Millisecond
-	retryBaseDelay = time.Second
+	minRefreshTime         = 100 * time.Millisecond
+	maxRefreshTime         = 500 * time.Millisecond
+	synchronousRefreshTime = 30 * time.Second
+	retryBaseDelay         = time.Second
 )
 
 // Configuration for the refresh coalescing.
@@ -37,7 +38,7 @@ func newAPIClient(distributedStorage sturdyc.DistributedStorage) *apiClient {
 	return &apiClient{
 		cache: sturdyc.New[any](capacity, numberOfShards, ttl, percentageOfRecordsToEvictWhenFull,
 			sturdyc.WithMissingRecordStorage(),
-			sturdyc.WithEarlyRefreshes(minRefreshTime, maxRefreshTime, retryBaseDelay),
+			sturdyc.WithEarlyRefreshes(minRefreshTime, maxRefreshTime, synchronousRefreshTime, retryBaseDelay),
 			sturdyc.WithRefreshCoalescing(idealBufferSize, bufferTimeout),
 			sturdyc.WithDistributedStorage(distributedStorage),
 		),

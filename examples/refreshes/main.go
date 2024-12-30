@@ -49,6 +49,8 @@ func main() {
 	// We don't want our outgoing requests graph to look like a comb.
 	minRefreshDelay := time.Millisecond * 10
 	maxRefreshDelay := time.Millisecond * 30
+	// Set a synchronous refresh delay for when we want a refresh to happen synchronously.
+	synchronousRefreshDelay := time.Second * 30
 	// The base used for exponential backoff when retrying a refresh. Most of the
 	// time, we perform refreshes well in advance of the records expiry time.
 	// Hence, we can use this to make it easier for a system that is having
@@ -60,7 +62,7 @@ func main() {
 
 	// Create a cache client with the specified configuration.
 	cacheClient := sturdyc.New[string](capacity, numShards, ttl, evictionPercentage,
-		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, retryBaseDelay),
+		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, synchronousRefreshDelay, retryBaseDelay),
 	)
 
 	// Create a new API instance with the cache client.
