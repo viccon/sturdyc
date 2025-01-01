@@ -33,7 +33,7 @@ type DistributedMetricsRecorder interface {
 	DistributedCacheMiss()
 	// DistributedRefresh is called when we retrieve a record from
 	// the distributed storage that should be refreshed.
-	DistributedRefresh() // TODO: Should this be renamed to DistributedBackgroundRefresh? And should we add DistributedSynchronousRefresh?
+	DistributedRefresh()
 	// DistributedMissingRecord is called when we retrieve a record from the
 	// distributed storage that has been marked as a missing record.
 	DistributedMissingRecord()
