@@ -3,7 +3,10 @@ package sturdyc_test
 import (
 	"context"
 	"errors"
+	"math/rand/v2"
+	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1357,4 +1360,211 @@ func TestGetFetchSynchronousRefreshStampedeProtection(t *testing.T) {
 	fetchObserver.AssertFetchCount(t, 2)
 }
 
-func TestGetFetchBatchMixOfSynchronousAndAsynchronousRefreshes(t *testing.T) {}
+func TestGetFetchBatchSynchronousRefreshStampedeProtection(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	capacity := 10
+	numShards := 2
+	ttl := time.Second * 2
+	evictionPercentage := 10
+	clock := sturdyc.NewTestClock(time.Now())
+	minRefreshDelay := time.Millisecond * 500
+	maxRefreshDelay := time.Millisecond * 500
+	synchronousRefreshDelay := time.Second
+	refreshRetryInterval := time.Millisecond * 10
+
+	// The cache is going to have a 2 second TTL, and the first refresh should happen within a second.
+	c := sturdyc.New[string](capacity, numShards, ttl, evictionPercentage,
+		sturdyc.WithNoContinuousEvictions(),
+		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, synchronousRefreshDelay, refreshRetryInterval),
+		sturdyc.WithMissingRecordStorage(),
+		sturdyc.WithClock(clock),
+	)
+
+	ids := []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"}
+	fetchObserver := NewFetchObserver(1)
+	fetchObserver.BatchResponse(ids)
+
+	res, err := sturdyc.GetOrFetchBatch(ctx, c, ids, c.BatchKeyFn("item"), fetchObserver.FetchBatch)
+	<-fetchObserver.FetchCompleted
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(res) != 10 {
+		t.Fatalf("expected 10 records, got %d", len(res))
+	}
+	fetchObserver.AssertRequestedRecords(t, ids)
+	fetchObserver.AssertFetchCount(t, 1)
+	fetchObserver.Clear()
+
+	// Now, we're going to go past the synchronous refresh delay and try to
+	// retrieve 3 random keys (without duplicates) from 1000 goroutines at once.
+	// In an ideal world, this should lead to 4 outgoing requests, e.g:
+	// 1, 2, 3
+	// 4, 5, 6
+	// 7, 8, 9
+	// However, we're not using delaying these requests, hence we could get a
+	// maximum of 10 outgoing requests if the batches were to get spread out
+	// something like this:
+	// 1, 2, 3
+	// 1, 2, 4
+	// 1, 2, 5
+	// 1, 2, 6
+	// 1, 2, 7
+	// 1, 2, ...
+	clock.Add(synchronousRefreshDelay + 1)
+	numGoroutines := 1000
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines)
+
+	// We need to create another fetch mock because the fetchObserver resolves
+	// the response immediately. However, we want to delay the response in order to
+	// check that the deduplication works as expected. If we don't delay the
+	// function responding, we'll have other goroutines with synchronous refresh
+	// ids that are going to send of another request right after.
+	signal := make(chan struct{})
+	var callCount atomic.Int32
+	fetchMock := func(_ context.Context, ids []string) (map[string]string, error) {
+		<-signal
+		callCount.Add(1)
+		responseMap := make(map[string]string, len(ids))
+		for _, id := range ids {
+			responseMap[id] = "value" + id
+		}
+		return responseMap, nil
+	}
+
+	for i := 0; i < numGoroutines; i++ {
+		go func() {
+			defer wg.Done()
+			uniqueIDs := make(map[string]struct{})
+			for len(uniqueIDs) < 3 {
+				id := ids[rand.IntN(len(ids))]
+				if _, ok := uniqueIDs[id]; ok {
+					continue
+				}
+				uniqueIDs[id] = struct{}{}
+			}
+			idsToFetch := make([]string, 0, 3)
+			for id := range uniqueIDs {
+				idsToFetch = append(idsToFetch, id)
+			}
+			res, err := sturdyc.GetOrFetchBatch(ctx, c, idsToFetch, c.BatchKeyFn("item"), fetchMock)
+			if err != nil {
+				panic(err)
+			}
+			if len(res) != 3 {
+				panic("expected 3 records, got " + strconv.Itoa(len(res)))
+			}
+			for _, id := range idsToFetch {
+				if _, ok := res[id]; !ok {
+					panic("expected id " + id + " to be in the response")
+				}
+			}
+		}()
+	}
+	// Allow all of the goroutines to start and get some CPU time.
+	time.Sleep(time.Millisecond * 500)
+	// Now, we'll close the channel which should give all of the goroutines their response.
+	close(signal)
+	// Wait for the wait group so that we can run the assertions within the goroutines.
+	wg.Wait()
+	if callCount.Load() > 10 {
+		t.Errorf("expected no more than 10 calls, got %d", callCount.Load())
+	}
+}
+
+func TestGetFetchBatchMixOfSynchronousAndAsynchronousRefreshes(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	capacity := 10
+	numShards := 2
+	ttl := time.Second * 2
+	evictionPercentage := 10
+	clock := sturdyc.NewTestClock(time.Now())
+	minRefreshDelay := time.Millisecond * 500
+	maxRefreshDelay := time.Millisecond * 500
+	synchronousRefreshDelay := time.Second
+	refreshRetryInterval := time.Millisecond * 10
+	batchSize := 20
+	batchBufferTimeout := time.Millisecond * 50
+
+	c := sturdyc.New[string](capacity, numShards, ttl, evictionPercentage,
+		sturdyc.WithNoContinuousEvictions(),
+		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, synchronousRefreshDelay, refreshRetryInterval),
+		sturdyc.WithMissingRecordStorage(),
+		sturdyc.WithRefreshCoalescing(batchSize, batchBufferTimeout),
+		sturdyc.WithClock(clock),
+	)
+
+	// We'll start by fetching one batch of IDs, and make some assertions.
+	firstBatchOfIDs := []string{"1", "2", "3"}
+	fetchObserver := NewFetchObserver(2)
+	fetchObserver.BatchResponse(firstBatchOfIDs)
+	res, err := sturdyc.GetOrFetchBatch(ctx, c, firstBatchOfIDs, c.BatchKeyFn("item"), fetchObserver.FetchBatch)
+	<-fetchObserver.FetchCompleted
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(res) != 3 {
+		t.Fatalf("expected 3 records, got %d", len(res))
+	}
+	fetchObserver.AssertRequestedRecords(t, firstBatchOfIDs)
+	fetchObserver.Clear()
+
+	// Next, we'll move the clock past the synchronous refresh delay, and
+	// make a call for a second batch of IDs. The first batch of IDs should
+	// now be a second old, and  due for a synchronous refresh the next time
+	// any of the IDs are requested.
+	clock.Add(synchronousRefreshDelay + 1)
+	secondBatchOfIDs := []string{"4", "5", "6"}
+	fetchObserver.BatchResponse(secondBatchOfIDs)
+	res, err = sturdyc.GetOrFetchBatch(ctx, c, secondBatchOfIDs, c.BatchKeyFn("item"), fetchObserver.FetchBatch)
+	<-fetchObserver.FetchCompleted
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(res) != 3 {
+		t.Fatalf("expected 3 records, got %d", len(res))
+	}
+	fetchObserver.AssertRequestedRecords(t, secondBatchOfIDs)
+	fetchObserver.Clear()
+
+	// Now we'll move the clock passed the maxRefreshDelay, which should make
+	// the second batch of IDs due for a refresh, but not a synchronous one.
+	clock.Add(maxRefreshDelay + 1)
+
+	// Here we create a third batch of IDs which contains one of the IDs from the
+	// first batch, and another ID from the second batch, and an additional ID
+	// that we haven't seen before.
+	thirdBatchOfIDs := []string{"1", "4", "23"}
+	fetchObserver.BatchResponse([]string{"1", "23"})
+	res, err = sturdyc.GetOrFetchBatch(ctx, c, thirdBatchOfIDs, c.BatchKeyFn("item"), fetchObserver.FetchBatch)
+	<-fetchObserver.FetchCompleted
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(res) != 3 {
+		t.Fatalf("expected 3 records, got %d", len(res))
+	}
+	// We only expect to have called the underlying data source with the
+	// ID from the first batch, and the ID we haven't seen before.
+	fetchObserver.AssertRequestedRecords(t, []string{"1", "23"})
+	fetchObserver.AssertFetchCount(t, 3)
+	fetchObserver.Clear()
+
+	// Since we're using the WithRefreshCoalescing option, the cache will have created
+	// an internal buffer where it's trying to gather 10 IDs before sending them off
+	// to the underlying data source. However, we're only asking for one ID from the
+	// second batch. Therefore, we'll have to move the clock in order to make the cache
+	// exceed the buffering timeout.
+	fetchObserver.BatchResponse([]string{"4"})
+	// Give the buffering goroutine a chance to run before we move the clock.
+	time.Sleep(time.Millisecond * 200)
+	clock.Add(batchBufferTimeout + 1)
+	<-fetchObserver.FetchCompleted
+	fetchObserver.AssertRequestedRecords(t, []string{"4"})
+	fetchObserver.AssertFetchCount(t, 4)
+}
