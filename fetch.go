@@ -48,19 +48,22 @@ func getFetch[V, T any](ctx context.Context, c *Client[T], key string, fetchFn F
 		res, err := callAndCache(ctx, c, key, wrappedFetch)
 		//  Check if the record has been deleted at the source. If it has, we'll
 		//  delete it from the cache too. NOTE: The callAndCache function converts
-		//  ErrNotFound to ErrMissingRecord.
-		if ok && !markedAsMissing && errors.Is(err, ErrMissingRecord) {
+		//  ErrNotFound to ErrMissingRecord if missing record storage is enabled.
+		if ok && errors.Is(err, ErrNotFound) {
 			c.Delete(key)
 		}
 
-		if errors.Is(err, ErrMissingRecord) {
+		if errors.Is(err, ErrMissingRecord) || errors.Is(err, ErrNotFound) {
 			return res, err
 		}
 
 		// If the call to synchrounously refresh the record failed,
-		// we'll return the latest value if we have it in the cache.
+		// we'll return the latest value if we have it in the cache
+		// along with a ErrOnlyCachedRecords error. The consumer can
+		// then decide whether to proceed with the cached data or to
+		// propagate the error.
 		if err != nil && ok {
-			return value, nil
+			return value, ErrOnlyCachedRecords
 		}
 
 		return res, err
@@ -163,8 +166,10 @@ func getFetchBatch[V, T any](ctx context.Context, c *Client[T], ids []string, ke
 			_, okResponse := response[id]
 			_, okCache := cachedRecords[id]
 			if okCache && !okResponse {
+				if !c.storeMissingRecords {
+					c.Delete(keyFn(id))
+				}
 				delete(cachedRecords, id)
-				c.Delete(keyFn(id))
 			}
 		}
 	}

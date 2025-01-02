@@ -107,6 +107,7 @@ func (s *shard[T]) get(key string) (val T, exists, markedAsMissing, backgroundRe
 
 	// Check if the record should be synchronously refreshed.
 	if s.earlyRefreshes && s.clock.Now().After(item.synchronousRefreshAt) {
+		s.RUnlock()
 		return item.value, true, item.isMissingRecord, false, true
 	}
 
