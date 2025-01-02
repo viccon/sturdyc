@@ -23,9 +23,18 @@ _robust_ and _highly performant_.
 The API is very simple to use. If you’re currently retrieving your data from a
 distributed cache, database, or API, you should be able to add this package to
 your application for a significant performance boost without losing data
-freshness -- provided you configure your cache client correctly. As you will see
-below, there are many options, and I encourage you to read through this README
-and experiment with the examples.
+freshness -- provided you configure your cache client correctly. As you will
+see below, there are many options, and I encourage you to read through this
+README and experiment with the examples to get an understanding of how it
+works. Below is a screenshot showing the P95 latency improvements we've
+observed after using this package in front of our distributed key-value store:
+
+&nbsp;
+<img width="1554" alt="Screenshot 2024-05-10 at 10 15 18" src="https://github.com/viccon/sturdyc/assets/12787673/adad1d4c-e966-4db1-969a-eda4fd75653a">
+&nbsp;
+
+In addition to this, we were also able to reduce our number of outgoing
+requests by more than 90% after enabling the refresh coalescing option.
 
 # Installing
 
@@ -89,18 +98,6 @@ based on recency. The eviction algorithm uses
 [quickselect](https://en.wikipedia.org/wiki/Quickselect), which has an O(N)
 time complexity without requiring write locks on reads to update a recency
 list.
-
-### Latency improvements
-
-Below is a screenshot showing the latency improvements we've observed after
-replacing our old cache with this package:
-
-&nbsp;
-<img width="1554" alt="Screenshot 2024-05-10 at 10 15 18" src="https://github.com/viccon/sturdyc/assets/12787673/adad1d4c-e966-4db1-969a-eda4fd75653a">
-&nbsp;
-
-In addition to this, we've seen our number of outgoing requests decrease by
-more than 90% after enabling refresh coalescing.
 
 # Adding `sturdyc` to your application:
 
