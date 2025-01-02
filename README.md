@@ -20,6 +20,13 @@ It has all the functionality you would expect from a caching library, but what
 **sets it apart** are the features designed to make I/O heavy applications both
 _robust_ and _highly performant_.
 
+The API is very simple to use. If you’re currently retrieving your data from a
+distributed cache, database, or API, you should be able to add this package to
+your application for a significant performance boost without losing data
+freshness -- provided you configure your cache client correctly. As you will see
+below, there are many options, and I encourage you to read through this README
+and experiment with the examples.
+
 # Installing
 
 ```sh
