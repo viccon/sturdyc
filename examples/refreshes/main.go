@@ -42,20 +42,22 @@ func main() {
 	evictionPercentage := 10
 
 	// ===========================================================
-	// =================== Background refreshes ==================
+	// ===================== Early refreshes ====================
 	// ===========================================================
-	// Set a minimum and maximum refresh delay for the record. This is
-	// used to spread out the refreshes of our entries evenly over time.
-	// We don't want our outgoing requests graph to look like a comb.
+	// Set a minimum and maximum refresh delay for the records. This is used to
+	// spread out the refreshes of our records evenly over time. If we're running
+	// our application across 100 containers, we don't want to send a spike of
+	// refreshes from every container every 30 ms. Instead, we'll use some
+	// randomization to spread them out evenly between 10 and 30 ms.
 	minRefreshDelay := time.Millisecond * 10
 	maxRefreshDelay := time.Millisecond * 30
 	// Set a synchronous refresh delay for when we want a refresh to happen synchronously.
 	synchronousRefreshDelay := time.Second * 30
-	// The base used for exponential backoff when retrying a refresh. Most of the
-	// time, we perform refreshes well in advance of the records expiry time.
-	// Hence, we can use this to make it easier for a system that is having
-	// trouble to get back on it's feet by making fewer refreshes when we're
-	// seeing a lot of errors. Once we receive a successful response, the
+	// The base used for exponential backoff when retrying a background refresh.
+	// Most of the time, we perform refreshes well in advance of the records
+	// expiry time. Hence, we can use this to make it easier for a system that
+	// is having trouble to get back on it's feet by making fewer refreshes when
+	// we're seeing a lot of errors. Once we receive a successful response, the
 	// refreshes return to their original frequency. You can set this to 0
 	// if you don't want this behavior.
 	retryBaseDelay := time.Millisecond * 10

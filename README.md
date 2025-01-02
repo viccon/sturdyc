@@ -25,8 +25,9 @@ distributed cache, database, or API, you should be able to add this package to
 your application for a significant performance boost without losing data
 freshness — provided you configure your cache client correctly. As you will see
 below, there are many options, and I encourage you to read through this README
-and experiment with the examples to get an understanding of how it works. Below
-is a screenshot showing the P95 latency improvements we've observed after adding
+and experiment with the examples to get an understanding of how it works.
+
+Here is a screenshot showing the P95 latency improvements we've observed after adding
 this package in front of our distributed key-value store:
 
 &nbsp;
@@ -41,6 +42,26 @@ requests by more than 90% after enabling the _refresh coalescing_ option.
 ```sh
 go get github.com/viccon/sturdyc
 ```
+
+# Table of contents
+
+Below is the table of contents for what this README is going to cover. However,
+if this is your first time using this package, I encourage you to **read these
+examples in the order they appear**. Most of them build on each other, and many
+share configurations.
+
+- [**creating a cache client**](https://github.com/viccon/sturdyc?tab=readme-ov-file#creating-a-cache-client)
+- [**stampede protection**](https://github.com/viccon/sturdyc?tab=readme-ov-file#stampede-protection)
+- [**early refreshes**](https://github.com/viccon/sturdyc?tab=readme-ov-file#early-refreshes)
+- [**deletions**](https://github.com/viccon/sturdyc?tab=readme-ov-file#deletions)
+- [**caching non-existent records**](https://github.com/viccon/sturdyc?tab=readme-ov-file#non-existent-records)
+- [**caching batch endpoints per record**](https://github.com/viccon/sturdyc?tab=readme-ov-file#batch-endpoints)
+- [**cache key permutations**](https://github.com/viccon/sturdyc?tab=readme-ov-file#cache-key-permutations)
+- [**refresh coalescing**](https://github.com/viccon/sturdyc?tab=readme-ov-file#refresh-coalescing)
+- [**request passthrough**](https://github.com/viccon/sturdyc?tab=readme-ov-file#passthrough)
+- [**distributed storage**](https://github.com/viccon/sturdyc?tab=readme-ov-file#distributed-storage)
+- [**custom metrics**](https://github.com/viccon/sturdyc?tab=readme-ov-file#custom-metrics)
+- [**generics**](https://github.com/viccon/sturdyc?tab=readme-ov-file#generics)
 
 # At a glance
 
@@ -183,25 +204,6 @@ retrieves the data has all of the values it needs.
 
 Next, we'll look at how to configure the cache in more detail.
 
-# Table of contents
-
-I've included examples that cover the entire API, and I encourage you to **read
-these examples in the order they appear**. Most of them build on each other,
-and many share configurations. Here is a brief overview of what the examples
-are going to cover:
-
-- [**creating a cache client**](https://github.com/viccon/sturdyc?tab=readme-ov-file#creating-a-cache-client)
-- [**stampede protection**](https://github.com/viccon/sturdyc?tab=readme-ov-file#stampede-protection)
-- [**early refreshes**](https://github.com/viccon/sturdyc?tab=readme-ov-file#early-refreshes)
-- [**caching non-existent records**](https://github.com/viccon/sturdyc?tab=readme-ov-file#non-existent-records)
-- [**caching batch endpoints per record**](https://github.com/viccon/sturdyc?tab=readme-ov-file#batch-endpoints)
-- [**cache key permutations**](https://github.com/viccon/sturdyc?tab=readme-ov-file#cache-key-permutations)
-- [**refresh coalescing**](https://github.com/viccon/sturdyc?tab=readme-ov-file#refresh-coalescing)
-- [**request passthrough**](https://github.com/viccon/sturdyc?tab=readme-ov-file#passthrough)
-- [**distributed storage**](https://github.com/viccon/sturdyc?tab=readme-ov-file#distributed-storage)
-- [**custom metrics**](https://github.com/viccon/sturdyc?tab=readme-ov-file#custom-metrics)
-- [**generics**](https://github.com/viccon/sturdyc?tab=readme-ov-file#generics)
-
 # Creating a cache client
 
 The first thing you will have to do is to create a cache client to hold your
@@ -241,12 +243,12 @@ cache, come in at once.
 
 Preventing this has been one of the key objectives for this package. We do not
 want to cause a significant load on an underlying data source every time one of
-our keys expires.
+our keys expires. To address this, `sturdyc` performs _in-flight_ tracking for
+every key.
 
-The `GetOrFetch` function takes a key and a function for retrieving the data if
-it's not in the cache. The cache is going to ensure that we never have more
-than a single request per key. It achieves this by tracking all of the
-in-flight requests:
+We can demonstrate this using the `GetOrFetch` function which takes a key, and
+a function for retrieving the data if it's not in the cache. The cache is going
+to ensure that we never have more than a single request per key:
 
 ```go
 	var count atomic.Int32
@@ -273,7 +275,7 @@ in-flight requests:
 
 ```
 
-Running this program we'll see that our requests for "key2" were deduplicated,
+Running this program we'll see that our requests for "key2" got deduplicated,
 and that the fetchFn only got called once:
 
 ```sh
@@ -287,14 +289,21 @@ and that the fetchFn only got called once:
 2024/05/21 08:06:29 1337 true
 ```
 
-For data sources that supports batching, we're able to use the
-`GetOrFetchBatch` function. To demonstrate this, I'll create a mock function
-that sleeps for `5` seconds, and then returns a map with a numerical value for
-every ID:
+The in-flight tracking works for batch operations too. The cache is able to
+deduplicate a batch of cache misses, and then assemble the response by picking
+records from multiple in-flight requests.
+
+To demonstrate this, we'll use the `GetOrFetchBatch` function, which can be
+used to retrieve data from a data source capable of handling requests for
+multiple records at once.
+
+We'll start by creating a mock function that sleeps for `5` seconds, and then
+returns a map with a numerical value for every ID:
 
 ```go
 	var count atomic.Int32
 	fetchFn := func(_ context.Context, ids []string) (map[string]int, error) {
+        // Increment the counter so that we can assert how many times this function was called.
 		count.Add(1)
 		time.Sleep(time.Second * 5)
 
@@ -319,10 +328,14 @@ IDs each:
 	}
 ```
 
-IDs can often be fetched from multiple data sources. Hence, we'll want to
-prefix the ID in order to make the cache key unique. The package provides more
-functionality for this that we'll see later on, but for now we'll use the most
-simple version which adds a string prefix to every ID:
+IDs can often be used to fetch data from multiple data sources. As an example,
+we might use an userId to fetch orders, payments, shipment options, etc. Hence,
+if we're using the cache with an API client, we'll want to prefix this user ID
+with the actual endpoint we're using in order to make the cache key unique.
+
+The package provides more functionality for this that we'll see later on, but
+for now we'll use the most simple version which adds a string prefix to every
+ID:
 
 ```go
 	keyPrefixFn := cacheClient.BatchKeyFn("my-data-source")
@@ -338,7 +351,8 @@ We can now request each batch in a separate goroutine:
 		}()
 	}
 
-	// Give the goroutines above a chance to run to ensure that the batches are in-flight.
+    // Sleep to give the goroutines above a chance to run.
+    // This ensures that the batches are in-flight.
 	time.Sleep(time.Second * 3)
 ```
 
@@ -347,7 +361,12 @@ this, we'll test the stampede protection by launching another five goroutines.
 Each goroutine is going to request two random IDs from our batches:
 
 ```go
-	// Launch another 5 goroutines that are going to pick two random IDs from any of the batches.
+	// Launch another 5 goroutines that are going to pick two random IDs from any of our in-flight batches.
+    // e.g:
+    // [1,8]
+    // [4,11]
+    // [14,2]
+    // [6,15]
 	var wg sync.WaitGroup
 	for i := 0; i < 5; i++ {
 		wg.Add(1)
@@ -364,7 +383,8 @@ Each goroutine is going to request two random IDs from our batches:
 ```
 
 Running this program, and looking at the logs, we'll see that the cache is able
-to pick IDs from different batches:
+resolve all of these values without generating any additional outgoing requests
+even though the IDs are picked from different batches:
 
 ```sh
 ❯ go run .
@@ -379,37 +399,60 @@ to pick IDs from different batches:
 2024/05/21 09:14:23 fetchFn was called 3 times <---- NOTE: We only generated 3 outgoing requests.
 ```
 
-And on the last line, we can see that the additional calls didn't generate any
-further outgoing requests. The entire example is available [here.](https://github.com/viccon/sturdyc/tree/main/examples/basic)
+The entire example is available [here.](https://github.com/viccon/sturdyc/tree/main/examples/basic)
 
-## Early refreshes
+# Early refreshes
 
-Being able to prevent your most frequently used records from ever expiring can
-have a significant impact on your application's latency. Therefore, the package
-provides a `WithEarlyRefreshes` option, which instructs the cache to
-continuously refresh these records in the background before they expire.
+Serving data from memory is typically one to two orders of magnitude faster
+than reading from disk, and if you have to retrieve the data across a network
+the difference can grow even larger. Consequently, we're often able to
+significantly improve our applications performance by adding an in-memory
+cache.
 
-A refresh gets scheduled if a key is **requested again** after a configurable
-amount of time has passed. This is an important distinction because it means
-that the cache doesn't just naively refresh every key it's ever seen. Instead,
-it only refreshes the records that are actually in active rotation, while
-allowing unused keys to be deleted once their TTL expires.
+However, one has to be aware of the usual trade-offs. Suppose we use a TTL of
+10 seconds. That means the cached data can be up to 10 seconds old. In many
+applications this may be acceptable, but in others it can introduce stale
+reads. Additionally, once the cached value expires, the first request after
+expiration must refresh the cache, resulting in a longer response time for that
+user. This can make the average latency look very different from the P90–P99
+tail latencies, since those percentiles capture the refresh delays. This can
+make it difficult to configure appropriate alarms for your applications
+response times.
+
+`sturdyc` aims to give you a lot of control over these choices when you enable
+the early refreshes functionality. It will prevent your most frequently used
+records from ever expiring by continuously refreshing them in the background.
+This has a significant impact on your applications latency. We've seen the P99
+of some of our applications go from 50ms down to 1.
+
+One thing to note about these background refreshes is that they are scheduled
+if a key is **requested again** after a configurable amount of time has passed.
+This is an important distinction because it means that the cache doesn't just
+naively refresh every key it's ever seen. Instead, it only refreshes the
+records that are actually in active rotation, while allowing unused keys to be
+deleted once their TTL expires. This also means that the request that gets
+chosen to refresh the value won’t retrieve the updated data right away. To
+address this, you can provide a synchronous refresh time, where you essentially
+say, "If the data is older than x, I want the refresh to be blocking."
 
 Below is an example configuration that you can use to enable this functionality:
 
 ```go
 func main() {
-	// Set a minimum and maximum refresh delay for the record. This is
-	// used to spread out the refreshes of our entries evenly over time.
-	// We don't want our outgoing requests graph to look like a comb that
-    // sends a spike of refreshes every 30 ms.
+	// Set a minimum and maximum refresh delay for the records. This is used to
+	// spread out the refreshes of our records evenly over time. If we're running
+	// our application across 100 containers, we don't want to send a spike of
+	// refreshes from every container every 30 ms. Instead, we'll use some
+	// randomization to spread them out evenly between 10 and 30 ms.
 	minRefreshDelay := time.Millisecond * 10
 	maxRefreshDelay := time.Millisecond * 30
-	// The base used for exponential backoff when retrying a refresh. Most of the
-	// time, we perform refreshes well in advance of the records expiry time.
-	// Hence, we can use this to make it easier for a system that is having
-	// trouble to get back on it's feet by making fewer refreshes when we're
-	// seeing a lot of errors. Once we receive a successful response, the
+	// Set a synchronous refresh delay for when we want a refresh to happen synchronously.
+	synchronousRefreshDelay := time.Second * 30
+	// The base used for exponential backoff when retrying a background refresh.
+	// Most of the time, we perform refreshes well in advance of the records
+	// expiry time. Hence, we can use this to make it easier for a system that
+	// is having trouble to get back on it's feet by making fewer refreshes when
+	// we're seeing a lot of errors. Once we receive a successful response, the
 	// refreshes return to their original frequency. You can set this to 0
 	// if you don't want this behavior.
 	retryBaseDelay := time.Millisecond * 10
@@ -421,8 +464,8 @@ func main() {
 }
 ```
 
-And to get a feeling for how this works, we'll use the configuration above and
-then create a simple API client which embedds the cache:
+And to get a better feeling for how this works, we'll use the configuration
+above, and then we'll create a simple API client which embedds the cache:
 
 ```go
 type API struct {
@@ -474,6 +517,7 @@ Running this program, we're going to see that the value gets refreshed once
 every 2-3 retrievals:
 
 ```sh
+cd examples/refreshes
 go run .
 2024/04/07 09:05:29 Fetching value for key: key
 2024/04/07 09:05:29 Value: value
@@ -486,26 +530,51 @@ go run .
 ...
 ```
 
-This is going to reduce your response times significantly because none of your
-users will have to wait for the I/O operation that refreshes the data. It's
-always performed in the background as long as the key is being continuously
-requested. Being afraid that the record might get too stale if users stop
-requesting it is an indication of a TTL that is set too high. Remember, even if
-the TTL is exceeded and the key expires, you'll still get deduplication if it's
-suddenly requested in a burst again. The only difference is that the users will
-have to wait for the I/O operation that retrieves it.
+If this was a real application it would have reduced our response times
+significantly because none of our users would have to wait for the I/O
+operation that refreshes the data. It's always performed in the background as
+long as the key is being continuously requested.
 
-Additionally, to provide a degraded experience when an upstream system
-encounters issues, you can set a high TTL and a low refresh time. When
-everything is working as expected, the records will be refreshed continuously.
-However, if the upstream system encounters issues and stops responding, you can
-fall back to cached records for the duration of the TTL.
+We don't have to be afraid that the data for infrequently used keys gets stale
+either, given that we set the synchronous refresh delay like this:
+
+```go
+	synchronousRefreshDelay := time.Second * 30
+```
+
+If a key isn't requested again within 30 seconds, the cache will make the
+refresh synchronous. Even if a minute has passed and 1,000 requests suddenly
+come in for this key, the stampede protection will kick in and make the refresh
+synchronous for all of them, while also ensuring that only a single request is
+made to the underlying data source.
+
+I also like to use this feature to provide a degraded experience when an
+upstream system encounters issues. For this, I choose a high TTL and a low
+refresh time, so that when everything is working as expected, the records are
+refreshed continuously. However, if the upstream system stops responding, I can
+rely on cached records for the entire duration of the TTL.
+
+One important note is that the synchronous refresh time isn’t affected by the
+exponential backoff. The number of background refreshes is going to get reduced
+if an upsteam system is experiencing errors. However, if we reach a point where
+all of the records are older than the synchronous refresh time, we're going to
+send a steady stream of outgoing requests. That is because I think of the
+synchronous refresh time as "I really don’t want the data to be older than
+this," so if a synchronous refresh fails, I want the very next request to
+attempt another refresh, because the data is now older than I’d like it to be.
+
+Also, if you don't want this functionality you could just set a short TTL. The
+cache will never return a record where the TTL has expired.
+
+The entire example is available [here.](https://github.com/viccon/sturdyc/tree/main/examples/refreshes)
+
+# Deletions
 
 What if the record was deleted? Our cache might use a 2-hour-long TTL, and we
 definitely don't want it to take that long for the deletion to propagate.
 
-However, if we were to modify our client so that it returns an error after the
-first request:
+However, if we were to modify our client from the previous example so that it
+returns an error after the first request:
 
 ```go
 type API struct {
@@ -533,7 +602,7 @@ func (a *API) Get(ctx context.Context, key string) (string, error) {
 and then run the program again:
 
 ```sh
-cd examples/stampede
+cd examples/refreshes
 go run .
 ```
 
@@ -577,7 +646,7 @@ for every refresh, but the value is still being printed:
 
 This is a bit tricky because how you determine if a record has been deleted is
 going to vary based on your data source. It could be a status code, zero value,
-empty list, specific error message, etc. There is no way for the cache to
+empty list, specific error message, etc. There is no easy way for the cache to
 figure this out implicitly.
 
 It couldn't simply delete a record every time it receives an error. If an
@@ -599,7 +668,7 @@ fetchFn := func(_ context.Context) (string, error) {
 	}
 ```
 
-This tell's the cache that the record is no longer available at the underlying data source.
+This tells the cache that the record is no longer available at the underlying data source.
 Therefore, if this record is being fetched as a background refresh, the cache will quickly see
 if it has a record for this key, and subsequently delete it.
 
@@ -644,16 +713,16 @@ just a single ID wasn't found:
 and then have the cache swallow that error and return nil, felt much less
 intuitive.
 
-The entire example is available [here.](https://github.com/viccon/sturdyc/tree/main/examples/refreshes)
+This code is based on the example available [here.](https://github.com/viccon/sturdyc/tree/main/examples/refreshes)
 
 # Non-existent records
 
 In the example above, we could see that once we delete the key, the following
-iterations lead to a continuous stream of outgoing requests. This will happen
-for every ID that doesn't exist at the data source. If we can't retrieve it, we
-can't cache it. If we can't cache it, we can't serve it from memory. If this
-happens frequently, we'll experience a lot of I/O operations, which will
-significantly increase our system's latency.
+iterations lead to a continuous stream of outgoing requests. This would also
+happen for every ID that doesn't exist at the underlying data source. If we
+can't retrieve it, we can't cache it. If we can't cache it, we can't serve it
+from memory. If this happens frequently, we'll experience a lot of I/O
+operations, which will significantly increase our system's latency.
 
 The reasons why someone might request IDs that don't exist can vary. It could
 be due to a faulty CMS configuration, or perhaps it's caused by a slow
@@ -662,9 +731,11 @@ distributed system. Regardless, this will negatively impact our systems
 performance.
 
 To address this issue, we can instruct the cache to mark these IDs as missing
-records. Missing records are refreshed at the same frequency as regular
-records. Hence, if an ID is continuously requested, and the upstream eventually
-returns a valid response, we'll see it propagate to our cache.
+records. If you're using this functionality in combination with the
+`WithEarlyRefreshes` option, they are going to get refreshed at the same
+frequency as regular records. Hence, if an ID is continuously requested, and
+the upstream eventually returns a valid response, we'll see it propagate to our
+cache.
 
 To illustrate, I'll make some small modifications to the code from the previous
 example. The only thing I'm going to change is to make the API client return a
