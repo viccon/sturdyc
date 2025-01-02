@@ -1,5 +1,5 @@
 ![sturdyC-fn-2](https://github.com/user-attachments/assets/2def120a-ad2b-4590-bef0-83c461af1b07)
-> A sturdy gopher shielding data sources from rapidly incoming requests
+> A sturdy gopher shielding data sources from rapidly incoming requests.
 
 # `sturdyc`: a caching library for building sturdy systems
 
