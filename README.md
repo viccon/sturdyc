@@ -21,10 +21,10 @@ It has all the functionality you would expect from a caching library, but what
 _robust_ and _highly performant_.
 
 If you’re currently retrieving your data from a distributed cache, database, or
-API, you should be able to add this package to your application for a
-significant performance boost. As you will see below, there are many options,
-and I encourage you to read through this README and experiment with the
-examples to get an understanding of how it works.
+API, you're probably able to add this package to your application for a
+significant performance boost. As you will see below, there are many ways to
+configure this package, and I encourage you to read through this README and
+experiment with the examples to get an understanding of how it works.
 
 Here is a screenshot showing the P95 latency improvements we've observed after adding
 this package in front of our distributed key-value store:
