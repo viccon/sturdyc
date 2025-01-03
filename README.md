@@ -291,6 +291,14 @@ ID:
 	keyPrefixFn := cacheClient.BatchKeyFn("my-data-source")
 ```
 
+This will result in cache keys like this:
+
+```
+my-data-source-ID-1
+my-data-source-ID-2
+my-data-source-ID-3
+```
+
 We can now request each batch in a separate goroutine:
 
 ```go
@@ -852,11 +860,14 @@ func NewAPI(c *sturdyc.Client[string]) *API {
 }
 
 func (a *API) GetBatch(ctx context.Context, ids []string) (map[string]string, error) {
-	// We are going to use a cache a key function that prefixes each id.
-	// This makes it possible to save the same id for different data sources.
+    // We are going to pass a cache a key function that prefixes each id with
+    // the string "some-prefix", and adds an -ID- separator before the actual
+    // id. This makes it possible to save the same id for different data
+    // sources as the keys would look something like this: some-prefix-ID-1234
 	cacheKeyFn := a.BatchKeyFn("some-prefix")
 
-	// The fetchFn is only going to retrieve the IDs that are not in the cache.
+	// The fetchFn is only going to retrieve the IDs that are not in the cache. Please
+    // note that the cacheMisses is going to contain the actual IDs, not the cache keys.
 	fetchFn := func(_ context.Context, cacheMisses []string) (map[string]string, error) {
 		log.Printf("Cache miss. Fetching ids: %s\n", strings.Join(cacheMisses, ", "))
 		// Batch functions should return a map where the key is the id of the record.
