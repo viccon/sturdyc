@@ -91,7 +91,7 @@ func TestPanicsIfTheRefreshBufferSizeIsLessThanOne(t *testing.T) {
 		}
 	}()
 	sturdyc.New[string](100, 10, time.Minute, 5,
-		sturdyc.WithEarlyRefreshes(time.Minute, time.Hour, time.Second),
+		sturdyc.WithEarlyRefreshes(time.Minute, time.Hour, time.Hour*2, time.Second),
 		sturdyc.WithRefreshCoalescing(0, time.Minute),
 	)
 }
@@ -106,7 +106,7 @@ func TestPanicsIfTheRefreshBufferTimeoutIsLessThanOne(t *testing.T) {
 		}
 	}()
 	sturdyc.New[string](100, 10, time.Minute, 5,
-		sturdyc.WithEarlyRefreshes(time.Minute, time.Hour, time.Second),
+		sturdyc.WithEarlyRefreshes(time.Minute, time.Hour, time.Hour*2, time.Second),
 		sturdyc.WithRefreshCoalescing(10, 0),
 	)
 }
@@ -135,7 +135,21 @@ func TestPanicsIfTheMinRefreshTimeIsGreaterThanTheMaxRefreshTime(t *testing.T) {
 		}
 	}()
 	sturdyc.New[string](100, 10, time.Minute, 5,
-		sturdyc.WithEarlyRefreshes(time.Hour, time.Minute, time.Second),
+		sturdyc.WithEarlyRefreshes(time.Hour, time.Minute, time.Hour*2, time.Second),
+	)
+}
+
+func TestPanicsIfTheBackgroundRefreshTimeIsGreaterThanTheSynchronousRefreshTime(t *testing.T) {
+	t.Parallel()
+
+	defer func() {
+		err := recover()
+		if err == nil {
+			t.Error("expected a panic when trying to use a greater background refresh time than the synchronous refresh time")
+		}
+	}()
+	sturdyc.New[string](100, 10, time.Minute, 5,
+		sturdyc.WithEarlyRefreshes(time.Minute, time.Hour*2, time.Hour*1, time.Second),
 	)
 }
 
@@ -149,6 +163,6 @@ func TestPanicsIfTheRetryBaseDelayIsLessThanZero(t *testing.T) {
 		}
 	}()
 	sturdyc.New[string](100, 10, time.Minute, 5,
-		sturdyc.WithEarlyRefreshes(time.Minute, time.Hour, -1),
+		sturdyc.WithEarlyRefreshes(time.Minute, time.Hour, time.Hour*2, -1),
 	)
 }

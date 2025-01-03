@@ -3,7 +3,10 @@ package sturdyc_test
 import (
 	"context"
 	"errors"
+	"math/rand/v2"
+	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -61,12 +64,13 @@ func TestGetOrFetchStampedeProtection(t *testing.T) {
 	clock := sturdyc.NewTestClock(time.Now())
 	minRefreshDelay := time.Millisecond * 500
 	maxRefreshDelay := time.Millisecond * 500
+	synchronousRefreshDelay := time.Second
 	refreshRetryInterval := time.Millisecond * 10
 
 	// The cache is going to have a 2 second TTL, and the first refresh should happen within a second.
 	c := sturdyc.New[string](capacity, numShards, ttl, evictionPercentage,
 		sturdyc.WithNoContinuousEvictions(),
-		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, refreshRetryInterval),
+		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, synchronousRefreshDelay, refreshRetryInterval),
 		sturdyc.WithMissingRecordStorage(),
 		sturdyc.WithClock(clock),
 	)
@@ -112,12 +116,13 @@ func TestGetOrFetchRefreshRetries(t *testing.T) {
 	evictionPercentage := 10
 	minRefreshDelay := time.Second
 	maxRefreshDelay := time.Second * 2
+	synchronousRefreshDelay := time.Second * 10
 	retryInterval := time.Millisecond * 10
 	clock := sturdyc.NewTestClock(time.Now())
 
 	c := sturdyc.New[string](capacity, numShards, ttl, evictionPercentage,
 		sturdyc.WithNoContinuousEvictions(),
-		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, retryInterval),
+		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, synchronousRefreshDelay, retryInterval),
 		sturdyc.WithMissingRecordStorage(),
 		sturdyc.WithClock(clock),
 	)
@@ -167,12 +172,13 @@ func TestGetOrFetchMissingRecord(t *testing.T) {
 	evictionPercentage := 20
 	minRefreshDelay := time.Second
 	maxRefreshDelay := time.Second * 2
+	synchronousRefreshDelay := time.Second * 10
 	retryInterval := time.Millisecond * 10
 	clock := sturdyc.NewTestClock(time.Now())
 	c := sturdyc.New[string](capacity, numShards, ttl, evictionPercentage,
 		sturdyc.WithNoContinuousEvictions(),
 		sturdyc.WithClock(clock),
-		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, retryInterval),
+		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, synchronousRefreshDelay, retryInterval),
 		sturdyc.WithMissingRecordStorage(),
 	)
 
@@ -266,13 +272,14 @@ func TestBatchGetOrFetchNilMapMissingRecords(t *testing.T) {
 	numShards := 1
 	ttl := time.Minute
 	evictionPercentage := 50
-	minRefreshDelay := time.Minute
-	maxRefreshDelay := time.Minute * 2
+	minRefreshDelay := time.Second
+	maxRefreshDelay := time.Second * 2
+	synchronousRefreshDelay := time.Second * 10
 	retryInterval := time.Second
 	clock := sturdyc.NewTestClock(time.Now())
 	c := sturdyc.New[string](capacity, numShards, ttl, evictionPercentage,
 		sturdyc.WithNoContinuousEvictions(),
-		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, retryInterval),
+		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, synchronousRefreshDelay, retryInterval),
 		sturdyc.WithMissingRecordStorage(),
 		sturdyc.WithClock(clock),
 	)
@@ -316,11 +323,12 @@ func TestGetOrFetchBatchRetries(t *testing.T) {
 	evictionPercentage := 10
 	minRefreshDelay := time.Hour
 	maxRefreshDelay := time.Hour * 2
+	synchronousRefreshDelay := time.Hour * 4
 	retryInterval := time.Second
 	clock := sturdyc.NewTestClock(time.Now())
 	c := sturdyc.New[string](capacity, numShards, ttl, evictionPercentage,
 		sturdyc.WithNoContinuousEvictions(),
-		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, retryInterval),
+		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, synchronousRefreshDelay, retryInterval),
 		sturdyc.WithMissingRecordStorage(),
 		sturdyc.WithClock(clock),
 	)
@@ -428,10 +436,11 @@ func TestGetOrFetchBatchStampedeProtection(t *testing.T) {
 	clock := sturdyc.NewTestClock(time.Now())
 	minRefreshDelay := time.Millisecond * 500
 	maxRefreshDelay := time.Millisecond * 1000
+	synchronousRefreshDelay := time.Millisecond * 1500
 	refreshRetryInterval := time.Millisecond * 10
 	c := sturdyc.New[string](capacity, shards, ttl, evictionPercentage,
 		sturdyc.WithNoContinuousEvictions(),
-		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, refreshRetryInterval),
+		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, synchronousRefreshDelay, refreshRetryInterval),
 		sturdyc.WithMissingRecordStorage(),
 		sturdyc.WithClock(clock),
 		sturdyc.WithMetrics(newTestMetricsRecorder(shards)),
@@ -502,11 +511,12 @@ func TestGetOrFetchDeletesRecordsThatHaveBeenRemovedAtTheSource(t *testing.T) {
 	clock := sturdyc.NewTestClock(time.Now())
 	minRefreshDelay := time.Millisecond * 500
 	maxRefreshDelay := time.Second
+	synchronousRefreshDelay := time.Minute
 	refreshRetryInterval := time.Millisecond * 10
 
 	c := sturdyc.New[string](capacity, numShards, ttl, evictionPercentage,
 		sturdyc.WithNoContinuousEvictions(),
-		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, refreshRetryInterval),
+		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, synchronousRefreshDelay, refreshRetryInterval),
 		sturdyc.WithClock(clock),
 	)
 
@@ -548,11 +558,12 @@ func TestGetOrFetchConvertsDeletedRecordsToMissingRecords(t *testing.T) {
 	clock := sturdyc.NewTestClock(time.Now())
 	minRefreshDelay := time.Millisecond * 500
 	maxRefreshDelay := time.Second
+	synchronousRefreshDelay := time.Minute
 	refreshRetryInterval := time.Millisecond * 10
 
 	c := sturdyc.New[string](capacity, numShards, ttl, evictionPercentage,
 		sturdyc.WithNoContinuousEvictions(),
-		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, refreshRetryInterval),
+		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, synchronousRefreshDelay, refreshRetryInterval),
 		sturdyc.WithMissingRecordStorage(),
 		sturdyc.WithClock(clock),
 	)
@@ -601,11 +612,12 @@ func TestGetOrFetchBatchDeletesRecordsThatHaveBeenRemovedAtTheSource(t *testing.
 	clock := sturdyc.NewTestClock(time.Now())
 	minRefreshDelay := time.Millisecond * 500
 	maxRefreshDelay := time.Second
+	synchronousRefreshDelay := time.Minute
 	refreshRetryInterval := time.Millisecond * 10
 
 	c := sturdyc.New[string](capacity, numShards, ttl, evictionPercentage,
 		sturdyc.WithNoContinuousEvictions(),
-		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, refreshRetryInterval),
+		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, synchronousRefreshDelay, refreshRetryInterval),
 		sturdyc.WithClock(clock),
 	)
 
@@ -648,11 +660,12 @@ func TestGetFetchBatchConvertsDeletedRecordsToMissingRecords(t *testing.T) {
 	clock := sturdyc.NewTestClock(time.Now())
 	minRefreshDelay := time.Millisecond * 500
 	maxRefreshDelay := time.Second
+	synchronousRefreshDelay := time.Minute
 	refreshRetryInterval := time.Millisecond * 10
 
 	c := sturdyc.New[string](capacity, numShards, ttl, evictionPercentage,
 		sturdyc.WithNoContinuousEvictions(),
-		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, refreshRetryInterval),
+		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, synchronousRefreshDelay, refreshRetryInterval),
 		sturdyc.WithMissingRecordStorage(),
 		sturdyc.WithClock(clock),
 	)
@@ -691,4 +704,867 @@ func TestGetFetchBatchConvertsDeletedRecordsToMissingRecords(t *testing.T) {
 	if _, ok := c.Get(c.BatchKeyFn("item")("3")); ok {
 		t.Errorf("expected key3 to not be returned by Get")
 	}
+}
+
+func TestGetFetchSynchronousRefreshes(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	capacity := 1000
+	numShards := 10
+	ttl := time.Hour
+	evictionPercentage := 10
+	minBackgroundRefreshDelay := time.Second
+	maxBackgroundRefreshDelay := time.Second * 2
+	synchronousRefreshDelay := time.Second * 10
+	retryInterval := time.Millisecond * 10
+	clock := sturdyc.NewTestClock(time.Now())
+
+	c := sturdyc.New[string](capacity, numShards, ttl, evictionPercentage,
+		sturdyc.WithNoContinuousEvictions(),
+		sturdyc.WithEarlyRefreshes(minBackgroundRefreshDelay, maxBackgroundRefreshDelay, synchronousRefreshDelay, retryInterval),
+		sturdyc.WithMissingRecordStorage(),
+		sturdyc.WithClock(clock),
+	)
+
+	id := "1"
+	fetchObserver := NewFetchObserver(1)
+	fetchObserver.Response(id)
+
+	res, err := sturdyc.GetOrFetch(ctx, c, id, fetchObserver.Fetch)
+	<-fetchObserver.FetchCompleted
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if res != "value1" {
+		t.Errorf("expected value1, got %v", res)
+	}
+
+	// Now, let's make the fetchObserver return a new value, and only move the
+	// clock enough to warrant a background refresh. The value we get should
+	// still be the same as the previous one because the refresh happens in the
+	// background.
+	fetchObserver.Clear()
+	fetchObserver.Response("2")
+	clock.Add(maxBackgroundRefreshDelay + 1)
+	res, err = sturdyc.GetOrFetch(ctx, c, id, fetchObserver.Fetch)
+	<-fetchObserver.FetchCompleted
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if res != "value1" {
+		t.Errorf("expected value1, got %v", res)
+	}
+
+	// Now we can wait for the background refresh to complete, and then assert
+	// that the next time we ask for this ID we'll get the new value.
+	time.Sleep(time.Millisecond * 100)
+	res, err = sturdyc.GetOrFetch(ctx, c, id, fetchObserver.Fetch)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if res != "value2" {
+		t.Errorf("expected value2, got %v", res)
+	}
+
+	// Let's do this again, but this time we'll move the clock passed the synchronous refresh delay.
+	// This should result in a synchronous refresh and we should get the new value right away.
+	fetchObserver.Clear()
+	fetchObserver.Response("3")
+	clock.Add(synchronousRefreshDelay + 1)
+	res, err = sturdyc.GetOrFetch(ctx, c, id, fetchObserver.Fetch)
+	<-fetchObserver.FetchCompleted
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if res != "value3" {
+		t.Errorf("expected value3, got %v", res)
+	}
+	fetchObserver.AssertFetchCount(t, 3)
+}
+
+func TestGetFetchBatchSynchronousRefreshes(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	capacity := 1000
+	numShards := 10
+	ttl := time.Hour
+	evictionPercentage := 10
+	minBackgroundRefreshDelay := time.Second
+	maxBackgroundRefreshDelay := time.Second * 2
+	synchronousRefreshDelay := time.Second * 10
+	retryInterval := time.Millisecond * 10
+	clock := sturdyc.NewTestClock(time.Now())
+
+	c := sturdyc.New[string](capacity, numShards, ttl, evictionPercentage,
+		sturdyc.WithNoContinuousEvictions(),
+		sturdyc.WithEarlyRefreshes(minBackgroundRefreshDelay, maxBackgroundRefreshDelay, synchronousRefreshDelay, retryInterval),
+		sturdyc.WithMissingRecordStorage(),
+		sturdyc.WithClock(clock),
+	)
+
+	firstBatchOfIDs := []string{"1", "2", "3"}
+	fetchObserver := NewFetchObserver(2)
+	fetchObserver.BatchResponse(firstBatchOfIDs)
+
+	_, err := sturdyc.GetOrFetchBatch(ctx, c, firstBatchOfIDs, c.BatchKeyFn("item"), fetchObserver.FetchBatch)
+	<-fetchObserver.FetchCompleted
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	fetchObserver.AssertRequestedRecords(t, firstBatchOfIDs)
+	fetchObserver.AssertFetchCount(t, 1)
+
+	// Now, let's move the clock 5 seconds and then request another batch of IDs.
+	clock.Add(time.Second * 5)
+	secondBatchOfIDs := []string{"4", "5", "6"}
+	fetchObserver.BatchResponse(secondBatchOfIDs)
+	_, err = sturdyc.GetOrFetchBatch(ctx, c, secondBatchOfIDs, c.BatchKeyFn("item"), fetchObserver.FetchBatch)
+	<-fetchObserver.FetchCompleted
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	fetchObserver.AssertRequestedRecords(t, secondBatchOfIDs)
+	fetchObserver.AssertFetchCount(t, 2)
+
+	// At this point, we should have IDs 1-3 in the cache that are 5  seconds
+	// old, and IDs 4-6 that are completely new. If we now move the clock another
+	// 5 seconds, we should reach the point where IDs 1-3 are due for a
+	// synchronous refresh, and IDs 4-6 are due for a background refresh.
+	clock.Add((time.Second * 5) + 1)
+
+	fullBatchOfIDs := []string{"1", "2", "3", "4", "5", "6"}
+	fetchObserver.BatchResponse(firstBatchOfIDs)
+	_, err = sturdyc.GetOrFetchBatch(ctx, c, fullBatchOfIDs, c.BatchKeyFn("item"), fetchObserver.FetchBatch)
+	// We'll assert that two refreshes happened. One synchronous refresh and one background refresh.
+	<-fetchObserver.FetchCompleted
+	<-fetchObserver.FetchCompleted
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	fetchObserver.AssertFetchCount(t, 4)
+}
+
+func TestGetFetchSynchronousRefreshConvertsToMissingRecord(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	capacity := 1000
+	numShards := 10
+	ttl := time.Hour
+	evictionPercentage := 10
+	minBackgroundRefreshDelay := time.Second
+	maxBackgroundRefreshDelay := time.Second * 2
+	synchronousRefreshDelay := time.Second * 10
+	retryInterval := time.Millisecond * 10
+	clock := sturdyc.NewTestClock(time.Now())
+
+	c := sturdyc.New[string](capacity, numShards, ttl, evictionPercentage,
+		sturdyc.WithNoContinuousEvictions(),
+		sturdyc.WithEarlyRefreshes(minBackgroundRefreshDelay, maxBackgroundRefreshDelay, synchronousRefreshDelay, retryInterval),
+		sturdyc.WithMissingRecordStorage(),
+		sturdyc.WithClock(clock),
+	)
+
+	id := "1"
+	fetchObserver := NewFetchObserver(1)
+	fetchObserver.Response(id)
+
+	res, err := sturdyc.GetOrFetch(ctx, c, id, fetchObserver.Fetch)
+	<-fetchObserver.FetchCompleted
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if res != "value1" {
+		t.Errorf("expected value1, got %v", res)
+	}
+
+	// Here, we'll set up the next request to return a not found error. Given
+	// that we have missing record storage enabled, we'll expect that the
+	// synchronous refresh returns a sturdyc.MissingRecord error.
+	fetchObserver.Clear()
+	fetchObserver.Err(sturdyc.ErrNotFound)
+	clock.Add(synchronousRefreshDelay + 1)
+
+	_, err = sturdyc.GetOrFetch(ctx, c, id, fetchObserver.Fetch)
+	if !errors.Is(err, sturdyc.ErrMissingRecord) {
+		t.Fatalf("expected ErrMissingRecord, got %v", err)
+	}
+	<-fetchObserver.FetchCompleted
+	fetchObserver.AssertFetchCount(t, 2)
+	if c.Size() != 1 {
+		t.Errorf("expected cache size to be 1, got %d", c.Size())
+	}
+
+	// Let's also make sure that the record can reappear again.
+	fetchObserver.Clear()
+	fetchObserver.Response("2")
+	clock.Add(synchronousRefreshDelay + 1)
+
+	res, err = sturdyc.GetOrFetch(ctx, c, id, fetchObserver.Fetch)
+	<-fetchObserver.FetchCompleted
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if res != "value2" {
+		t.Errorf("expected value2, got %v", res)
+	}
+	fetchObserver.AssertFetchCount(t, 3)
+}
+
+func TestGetFetchBatchSynchronousRefreshConvertsToMissingRecord(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	capacity := 1000
+	numShards := 10
+	ttl := time.Hour
+	evictionPercentage := 10
+	minBackgroundRefreshDelay := time.Second
+	maxBackgroundRefreshDelay := time.Second * 2
+	synchronousRefreshDelay := time.Second * 10
+	retryInterval := time.Millisecond * 10
+	clock := sturdyc.NewTestClock(time.Now())
+
+	c := sturdyc.New[string](capacity, numShards, ttl, evictionPercentage,
+		sturdyc.WithNoContinuousEvictions(),
+		sturdyc.WithEarlyRefreshes(minBackgroundRefreshDelay, maxBackgroundRefreshDelay, synchronousRefreshDelay, retryInterval),
+		sturdyc.WithMissingRecordStorage(),
+		sturdyc.WithClock(clock),
+	)
+
+	ids := []string{"1", "2", "3", "4", "5", "6"}
+	fetchObserver := NewFetchObserver(1)
+	fetchObserver.BatchResponse(ids)
+
+	res, err := sturdyc.GetOrFetchBatch(ctx, c, ids, c.BatchKeyFn("item"), fetchObserver.FetchBatch)
+	<-fetchObserver.FetchCompleted
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(res) != 6 {
+		t.Fatalf("expected 6 records, got %d", len(res))
+	}
+	if c.Size() != 6 {
+		t.Errorf("expected cache size to be 6, got %d", c.Size())
+	}
+	fetchObserver.AssertRequestedRecords(t, ids)
+	fetchObserver.AssertFetchCount(t, 1)
+
+	// Now, let's move the clock passed the synchronous refresh delay,
+	// and make the refresh only return values for IDs 1-3.
+	clock.Add(synchronousRefreshDelay + 1)
+	fetchObserver.Clear()
+	fetchObserver.BatchResponse([]string{"1", "2", "3"})
+
+	res, err = sturdyc.GetOrFetchBatch(ctx, c, ids, c.BatchKeyFn("item"), fetchObserver.FetchBatch)
+	<-fetchObserver.FetchCompleted
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(res) != 3 {
+		t.Fatalf("expected 3 records, got %d", len(res))
+	}
+	if c.Size() != 6 {
+		t.Errorf("expected cache size to be 6, got %d", c.Size())
+	}
+	fetchObserver.AssertRequestedRecords(t, ids)
+	fetchObserver.AssertFetchCount(t, 2)
+
+	// Next, let's assert that the records were successfully stored as missing.
+	clock.Add(minBackgroundRefreshDelay - 1)
+	res, err = sturdyc.GetOrFetchBatch(ctx, c, ids, c.BatchKeyFn("item"), fetchObserver.FetchBatch)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(res) != 3 {
+		t.Fatalf("expected 3 records, got %d", len(res))
+	}
+	if c.Size() != 6 {
+		t.Errorf("expected cache size to be 6, got %d", c.Size())
+	}
+
+	// And finally, let's make sure that the records can reappear again.
+	clock.Add(synchronousRefreshDelay)
+	fetchObserver.Clear()
+	fetchObserver.BatchResponse(ids)
+
+	res, err = sturdyc.GetOrFetchBatch(ctx, c, ids, c.BatchKeyFn("item"), fetchObserver.FetchBatch)
+	<-fetchObserver.FetchCompleted
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(res) != 6 {
+		t.Fatalf("expected 6 records, got %d", len(res))
+	}
+	if c.Size() != 6 {
+		t.Errorf("expected cache size to be 6, got %d", c.Size())
+	}
+	fetchObserver.AssertRequestedRecords(t, ids)
+}
+
+func TestGetFetchSynchronousRefreshDeletion(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	capacity := 1000
+	numShards := 10
+	ttl := time.Hour
+	evictionPercentage := 10
+	minBackgroundRefreshDelay := time.Second
+	maxBackgroundRefreshDelay := time.Second * 2
+	synchronousRefreshDelay := time.Second * 10
+	retryInterval := time.Millisecond * 10
+	clock := sturdyc.NewTestClock(time.Now())
+
+	c := sturdyc.New[string](capacity, numShards, ttl, evictionPercentage,
+		sturdyc.WithNoContinuousEvictions(),
+		sturdyc.WithEarlyRefreshes(minBackgroundRefreshDelay, maxBackgroundRefreshDelay, synchronousRefreshDelay, retryInterval),
+		sturdyc.WithClock(clock),
+	)
+
+	id := "1"
+	fetchObserver := NewFetchObserver(1)
+	fetchObserver.Response(id)
+
+	res, err := sturdyc.GetOrFetch(ctx, c, id, fetchObserver.Fetch)
+	<-fetchObserver.FetchCompleted
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if res != "value1" {
+		t.Errorf("expected value1, got %v", res)
+	}
+
+	// Here, we'll set up the next request to return a not found error. Given
+	// that we have missing record storage enabled, we'll expect that the
+	// synchronous refresh returns a sturdyc.MissingRecord error.
+	fetchObserver.Clear()
+	fetchObserver.Err(sturdyc.ErrNotFound)
+	clock.Add(synchronousRefreshDelay + 1)
+
+	_, err = sturdyc.GetOrFetch(ctx, c, id, fetchObserver.Fetch)
+	if !errors.Is(err, sturdyc.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+	<-fetchObserver.FetchCompleted
+	fetchObserver.AssertFetchCount(t, 2)
+	if c.Size() != 0 {
+		t.Errorf("expected cache size to be 0, got %d", c.Size())
+	}
+
+	// Let's also make sure that the record can reappear again.
+	clock.Add(synchronousRefreshDelay)
+	fetchObserver.Clear()
+	fetchObserver.Response(id)
+	res, err = sturdyc.GetOrFetch(ctx, c, id, fetchObserver.Fetch)
+	<-fetchObserver.FetchCompleted
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if res != "value1" {
+		t.Errorf("expected value1, got %v", res)
+	}
+	if c.Size() != 1 {
+		t.Errorf("expected cache size to be 1, got %d", c.Size())
+	}
+	fetchObserver.AssertFetchCount(t, 3)
+}
+
+func TestGetFetchBatchSynchronousRefreshDeletion(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	capacity := 1000
+	numShards := 10
+	ttl := time.Hour
+	evictionPercentage := 10
+	minBackgroundRefreshDelay := time.Second
+	maxBackgroundRefreshDelay := time.Second * 2
+	synchronousRefreshDelay := time.Second * 10
+	retryInterval := time.Millisecond * 10
+	clock := sturdyc.NewTestClock(time.Now())
+
+	c := sturdyc.New[string](capacity, numShards, ttl, evictionPercentage,
+		sturdyc.WithNoContinuousEvictions(),
+		sturdyc.WithEarlyRefreshes(minBackgroundRefreshDelay, maxBackgroundRefreshDelay, synchronousRefreshDelay, retryInterval),
+		sturdyc.WithClock(clock),
+	)
+
+	ids := []string{"1", "2", "3", "4", "5", "6"}
+	fetchObserver := NewFetchObserver(1)
+	fetchObserver.BatchResponse(ids)
+
+	res, err := sturdyc.GetOrFetchBatch(ctx, c, ids, c.BatchKeyFn("item"), fetchObserver.FetchBatch)
+	<-fetchObserver.FetchCompleted
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(res) != 6 {
+		t.Fatalf("expected 6 records, got %d", len(res))
+	}
+	if c.Size() != 6 {
+		t.Errorf("expected cache size to be 6, got %d", c.Size())
+	}
+	fetchObserver.AssertRequestedRecords(t, ids)
+	fetchObserver.AssertFetchCount(t, 1)
+
+	// Now, let's move the clock passed the synchronous refresh delay,
+	// and make the refresh only return values for IDs 1-3.
+	clock.Add(synchronousRefreshDelay + 1)
+	fetchObserver.Clear()
+	fetchObserver.BatchResponse([]string{"1", "2", "3"})
+
+	res, err = sturdyc.GetOrFetchBatch(ctx, c, ids, c.BatchKeyFn("item"), fetchObserver.FetchBatch)
+	<-fetchObserver.FetchCompleted
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(res) != 3 {
+		t.Fatalf("expected 3 records, got %d", len(res))
+	}
+	// IDs 4-6 should not have been deleted.
+	if c.Size() != 3 {
+		t.Errorf("expected cache size to be 3, got %d", c.Size())
+	}
+	fetchObserver.AssertRequestedRecords(t, ids)
+	fetchObserver.AssertFetchCount(t, 2)
+
+	// Next, let's assert that the records doesn't reappear the next time we ask for the same IDs.
+	fetchObserver.Clear()
+	fetchObserver.BatchResponse([]string{})
+	clock.Add(minBackgroundRefreshDelay - 1)
+
+	res, err = sturdyc.GetOrFetchBatch(ctx, c, ids, c.BatchKeyFn("item"), fetchObserver.FetchBatch)
+	<-fetchObserver.FetchCompleted
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(res) != 3 {
+		t.Fatalf("expected 3 records, got %d", len(res))
+	}
+	if c.Size() != 3 {
+		t.Errorf("expected cache size to be 3, got %d", c.Size())
+	}
+	// IDs 4-6 should have been deleted, hence we should get another outgoing request.
+	fetchObserver.AssertFetchCount(t, 3)
+	fetchObserver.AssertRequestedRecords(t, []string{"4", "5", "6"})
+
+	// Finally, let's make sure that the records can reappear again.
+	clock.Add(synchronousRefreshDelay)
+	fetchObserver.Clear()
+	fetchObserver.BatchResponse(ids)
+
+	res, err = sturdyc.GetOrFetchBatch(ctx, c, ids, c.BatchKeyFn("item"), fetchObserver.FetchBatch)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(res) != 6 {
+		t.Fatalf("expected 6 records, got %d", len(res))
+	}
+	if c.Size() != 6 {
+		t.Errorf("expected cache size to be 6, got %d", c.Size())
+	}
+	fetchObserver.AssertRequestedRecords(t, ids)
+	fetchObserver.AssertFetchCount(t, 4)
+}
+
+func TestGetFetchSynchronousRefreshFailureGivesLatestValue(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	capacity := 1000
+	numShards := 10
+	ttl := time.Hour
+	evictionPercentage := 10
+	minBackgroundRefreshDelay := time.Second
+	maxBackgroundRefreshDelay := time.Second * 2
+	synchronousRefreshDelay := time.Second * 10
+	retryInterval := time.Millisecond * 10
+	clock := sturdyc.NewTestClock(time.Now())
+
+	c := sturdyc.New[string](capacity, numShards, ttl, evictionPercentage,
+		sturdyc.WithNoContinuousEvictions(),
+		sturdyc.WithEarlyRefreshes(minBackgroundRefreshDelay, maxBackgroundRefreshDelay, synchronousRefreshDelay, retryInterval),
+		sturdyc.WithMissingRecordStorage(),
+		sturdyc.WithClock(clock),
+	)
+
+	id := "1"
+	fetchObserver := NewFetchObserver(1)
+	fetchObserver.Response(id)
+
+	res, err := sturdyc.GetOrFetch(ctx, c, id, fetchObserver.Fetch)
+	<-fetchObserver.FetchCompleted
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if res != "value1" {
+		t.Errorf("expected value1, got %v", res)
+	}
+
+	// Here, we'll set up the next request to return an error. Given that
+	// we still have this key cached, we expect the cache to give us an
+	// ErrOnlyCachedRecords error along with the cached value.
+	fetchObserver.Clear()
+	fetchObserver.Err(errors.New("error"))
+	clock.Add(synchronousRefreshDelay + 1)
+
+	res, err = sturdyc.GetOrFetch(ctx, c, id, fetchObserver.Fetch)
+	<-fetchObserver.FetchCompleted
+	if !errors.Is(err, sturdyc.ErrOnlyCachedRecords) {
+		t.Fatalf("expected ErrOnlyCachedRecords, got %v", err)
+	}
+	if res != "value1" {
+		t.Errorf("expected value1, got %v", res)
+	}
+	fetchObserver.AssertFetchCount(t, 2)
+
+	// Now, requesting the same ID again should result in another synchronous
+	// refresh without us having to move the clock. Let's set this one up to return
+	// an actual value.
+	fetchObserver.Clear()
+	fetchObserver.Response("2")
+
+	res, err = sturdyc.GetOrFetch(ctx, c, id, fetchObserver.Fetch)
+	<-fetchObserver.FetchCompleted
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if res != "value2" {
+		t.Errorf("expected value2, got %v", res)
+	}
+	fetchObserver.AssertFetchCount(t, 3)
+}
+
+func TestGetFetchBatchSynchronousRefreshFailureGivesLatestValue(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	capacity := 1000
+	numShards := 10
+	ttl := time.Hour
+	evictionPercentage := 10
+	minBackgroundRefreshDelay := time.Second
+	maxBackgroundRefreshDelay := time.Second * 2
+	synchronousRefreshDelay := time.Second * 10
+	retryInterval := time.Millisecond * 10
+	clock := sturdyc.NewTestClock(time.Now())
+
+	c := sturdyc.New[string](capacity, numShards, ttl, evictionPercentage,
+		sturdyc.WithNoContinuousEvictions(),
+		sturdyc.WithEarlyRefreshes(minBackgroundRefreshDelay, maxBackgroundRefreshDelay, synchronousRefreshDelay, retryInterval),
+		sturdyc.WithMissingRecordStorage(),
+		sturdyc.WithClock(clock),
+	)
+
+	ids := []string{"1", "2", "3", "4", "5"}
+	fetchObserver := NewFetchObserver(1)
+	fetchObserver.BatchResponse(ids)
+
+	res, err := sturdyc.GetOrFetchBatch(ctx, c, ids, c.BatchKeyFn("item"), fetchObserver.FetchBatch)
+	<-fetchObserver.FetchCompleted
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(res) != 5 {
+		t.Fatalf("expected 5 records, got %d", len(res))
+	}
+	fetchObserver.AssertRequestedRecords(t, ids)
+	fetchObserver.AssertFetchCount(t, 1)
+
+	// Now, let's move the clock passed the synchronous refresh
+	// delay, and make the next call return an error.
+	clock.Add(synchronousRefreshDelay + 1)
+	fetchObserver.Clear()
+	fetchObserver.Err(errors.New("error"))
+
+	res, err = sturdyc.GetOrFetchBatch(ctx, c, ids, c.BatchKeyFn("item"), fetchObserver.FetchBatch)
+	<-fetchObserver.FetchCompleted
+	if !errors.Is(err, sturdyc.ErrOnlyCachedRecords) {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(res) != 5 {
+		t.Fatalf("expected 5 records, got %d", len(res))
+	}
+	fetchObserver.AssertRequestedRecords(t, ids)
+	fetchObserver.AssertFetchCount(t, 2)
+
+	// If a synchronous refresh fails, we won't do any exponential backoff.
+	clock.Add(time.Millisecond)
+	res, err = sturdyc.GetOrFetchBatch(ctx, c, ids, c.BatchKeyFn("item"), fetchObserver.FetchBatch)
+	<-fetchObserver.FetchCompleted
+	if !errors.Is(err, sturdyc.ErrOnlyCachedRecords) {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(res) != 5 {
+		t.Fatalf("expected 5 records, got %d", len(res))
+	}
+	fetchObserver.AssertRequestedRecords(t, ids)
+	fetchObserver.AssertFetchCount(t, 3)
+}
+
+func TestGetFetchSynchronousRefreshStampedeProtection(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	capacity := 10
+	numShards := 2
+	ttl := time.Second * 2
+	evictionPercentage := 10
+	clock := sturdyc.NewTestClock(time.Now())
+	minRefreshDelay := time.Millisecond * 500
+	maxRefreshDelay := time.Millisecond * 500
+	synchronousRefreshDelay := time.Second
+	refreshRetryInterval := time.Millisecond * 10
+
+	// The cache is going to have a 2 second TTL, and the first refresh should happen within a second.
+	c := sturdyc.New[string](capacity, numShards, ttl, evictionPercentage,
+		sturdyc.WithNoContinuousEvictions(),
+		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, synchronousRefreshDelay, refreshRetryInterval),
+		sturdyc.WithMissingRecordStorage(),
+		sturdyc.WithClock(clock),
+	)
+
+	id := "1"
+	fetchObserver := NewFetchObserver(1000)
+	fetchObserver.Response(id)
+
+	// We will start the test by trying to get key1, which wont exist in the sturdyc. Hence,
+	// the fetch function is going to get called and we'll set the initial value to val1.
+	sturdyc.GetOrFetch[string](ctx, c, id, fetchObserver.Fetch)
+
+	<-fetchObserver.FetchCompleted
+	fetchObserver.AssertFetchCount(t, 1)
+
+	// Now, we're going to go past the synchronous refresh delay and try to retrieve the key from 1000 goroutines at once.
+	numGoroutines := 1000
+	clock.Add(synchronousRefreshDelay + 1)
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines)
+	for i := 0; i < numGoroutines; i++ {
+		go func() {
+			defer wg.Done()
+			_, err := sturdyc.GetOrFetch(ctx, c, id, fetchObserver.Fetch)
+			if err != nil {
+				panic(err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	<-fetchObserver.FetchCompleted
+	fetchObserver.AssertFetchCount(t, 2)
+}
+
+func TestGetFetchBatchSynchronousRefreshStampedeProtection(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	capacity := 10
+	numShards := 2
+	ttl := time.Second * 2
+	evictionPercentage := 10
+	clock := sturdyc.NewTestClock(time.Now())
+	minRefreshDelay := time.Millisecond * 500
+	maxRefreshDelay := time.Millisecond * 500
+	synchronousRefreshDelay := time.Second
+	refreshRetryInterval := time.Millisecond * 10
+
+	// The cache is going to have a 2 second TTL, and the first refresh should happen within a second.
+	c := sturdyc.New[string](capacity, numShards, ttl, evictionPercentage,
+		sturdyc.WithNoContinuousEvictions(),
+		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, synchronousRefreshDelay, refreshRetryInterval),
+		sturdyc.WithMissingRecordStorage(),
+		sturdyc.WithClock(clock),
+	)
+
+	ids := []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"}
+	fetchObserver := NewFetchObserver(1)
+	fetchObserver.BatchResponse(ids)
+
+	res, err := sturdyc.GetOrFetchBatch(ctx, c, ids, c.BatchKeyFn("item"), fetchObserver.FetchBatch)
+	<-fetchObserver.FetchCompleted
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(res) != 10 {
+		t.Fatalf("expected 10 records, got %d", len(res))
+	}
+	fetchObserver.AssertRequestedRecords(t, ids)
+	fetchObserver.AssertFetchCount(t, 1)
+	fetchObserver.Clear()
+
+	// Now, we're going to go past the synchronous refresh delay and try to
+	// retrieve 3 random keys (without duplicates) from 1000 goroutines at once.
+	// In an ideal world, this should lead to 4 outgoing requests, e.g:
+	// 1, 2, 3
+	// 4, 5, 6
+	// 7, 8, 9
+	// However, we're not using delaying these requests, hence we could get a
+	// maximum of 10 outgoing requests if the batches were to get spread out
+	// something like this:
+	// 1, 2, 3
+	// 1, 2, 4
+	// 1, 2, 5
+	// 1, 2, 6
+	// 1, 2, 7
+	// 1, 2, ...
+	clock.Add(synchronousRefreshDelay + 1)
+	numGoroutines := 1000
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines)
+
+	// We need to create another fetch mock because the fetchObserver resolves
+	// the response immediately. However, we want to delay the response in order to
+	// check that the deduplication works as expected. If we don't delay the
+	// function responding, we'll have other goroutines with synchronous refresh
+	// ids that are going to send of another request right after.
+	signal := make(chan struct{})
+	var callCount atomic.Int32
+	fetchMock := func(_ context.Context, ids []string) (map[string]string, error) {
+		<-signal
+		callCount.Add(1)
+		responseMap := make(map[string]string, len(ids))
+		for _, id := range ids {
+			responseMap[id] = "value" + id
+		}
+		return responseMap, nil
+	}
+
+	for i := 0; i < numGoroutines; i++ {
+		go func() {
+			defer wg.Done()
+			uniqueIDs := make(map[string]struct{})
+			for len(uniqueIDs) < 3 {
+				id := ids[rand.IntN(len(ids))]
+				if _, ok := uniqueIDs[id]; ok {
+					continue
+				}
+				uniqueIDs[id] = struct{}{}
+			}
+			idsToFetch := make([]string, 0, 3)
+			for id := range uniqueIDs {
+				idsToFetch = append(idsToFetch, id)
+			}
+			res, err := sturdyc.GetOrFetchBatch(ctx, c, idsToFetch, c.BatchKeyFn("item"), fetchMock)
+			if err != nil {
+				panic(err)
+			}
+			if len(res) != 3 {
+				panic("expected 3 records, got " + strconv.Itoa(len(res)))
+			}
+			for _, id := range idsToFetch {
+				if _, ok := res[id]; !ok {
+					panic("expected id " + id + " to be in the response")
+				}
+			}
+		}()
+	}
+	// Allow all of the goroutines to start and get some CPU time.
+	time.Sleep(time.Millisecond * 500)
+	// Now, we'll close the channel which should give all of the goroutines their response.
+	close(signal)
+	// Wait for the wait group so that we can run the assertions within the goroutines.
+	wg.Wait()
+	if callCount.Load() > 10 {
+		t.Errorf("expected no more than 10 calls, got %d", callCount.Load())
+	}
+}
+
+func TestGetFetchBatchMixOfSynchronousAndAsynchronousRefreshes(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	capacity := 10
+	numShards := 2
+	ttl := time.Second * 2
+	evictionPercentage := 10
+	clock := sturdyc.NewTestClock(time.Now())
+	minRefreshDelay := time.Millisecond * 500
+	maxRefreshDelay := time.Millisecond * 500
+	synchronousRefreshDelay := time.Second
+	refreshRetryInterval := time.Millisecond * 10
+	batchSize := 20
+	batchBufferTimeout := time.Millisecond * 50
+
+	c := sturdyc.New[string](capacity, numShards, ttl, evictionPercentage,
+		sturdyc.WithNoContinuousEvictions(),
+		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, synchronousRefreshDelay, refreshRetryInterval),
+		sturdyc.WithMissingRecordStorage(),
+		sturdyc.WithRefreshCoalescing(batchSize, batchBufferTimeout),
+		sturdyc.WithClock(clock),
+	)
+
+	// We'll start by fetching one batch of IDs, and make some assertions.
+	firstBatchOfIDs := []string{"1", "2", "3"}
+	fetchObserver := NewFetchObserver(2)
+	fetchObserver.BatchResponse(firstBatchOfIDs)
+	res, err := sturdyc.GetOrFetchBatch(ctx, c, firstBatchOfIDs, c.BatchKeyFn("item"), fetchObserver.FetchBatch)
+	<-fetchObserver.FetchCompleted
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(res) != 3 {
+		t.Fatalf("expected 3 records, got %d", len(res))
+	}
+	fetchObserver.AssertRequestedRecords(t, firstBatchOfIDs)
+	fetchObserver.Clear()
+
+	// Next, we'll move the clock past the synchronous refresh delay, and
+	// make a call for a second batch of IDs. The first batch of IDs should
+	// now be a second old, and  due for a synchronous refresh the next time
+	// any of the IDs are requested.
+	clock.Add(synchronousRefreshDelay + 1)
+	secondBatchOfIDs := []string{"4", "5", "6"}
+	fetchObserver.BatchResponse(secondBatchOfIDs)
+	res, err = sturdyc.GetOrFetchBatch(ctx, c, secondBatchOfIDs, c.BatchKeyFn("item"), fetchObserver.FetchBatch)
+	<-fetchObserver.FetchCompleted
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(res) != 3 {
+		t.Fatalf("expected 3 records, got %d", len(res))
+	}
+	fetchObserver.AssertRequestedRecords(t, secondBatchOfIDs)
+	fetchObserver.Clear()
+
+	// Now we'll move the clock passed the maxRefreshDelay, which should make
+	// the second batch of IDs due for a refresh, but not a synchronous one.
+	clock.Add(maxRefreshDelay + 1)
+
+	// Here we create a third batch of IDs which contains one of the IDs from the
+	// first batch, and another ID from the second batch, and an additional ID
+	// that we haven't seen before.
+	thirdBatchOfIDs := []string{"1", "4", "23"}
+	fetchObserver.BatchResponse([]string{"1", "23"})
+	res, err = sturdyc.GetOrFetchBatch(ctx, c, thirdBatchOfIDs, c.BatchKeyFn("item"), fetchObserver.FetchBatch)
+	<-fetchObserver.FetchCompleted
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(res) != 3 {
+		t.Fatalf("expected 3 records, got %d", len(res))
+	}
+	// We only expect to have called the underlying data source with the
+	// ID from the first batch, and the ID we haven't seen before.
+	fetchObserver.AssertRequestedRecords(t, []string{"1", "23"})
+	fetchObserver.AssertFetchCount(t, 3)
+	fetchObserver.Clear()
+
+	// Since we're using the WithRefreshCoalescing option, the cache will have created
+	// an internal buffer where it's trying to gather 10 IDs before sending them off
+	// to the underlying data source. However, we're only asking for one ID from the
+	// second batch. Therefore, we'll have to move the clock in order to make the cache
+	// exceed the buffering timeout.
+	fetchObserver.BatchResponse([]string{"4"})
+	// Give the buffering goroutine a chance to run before we move the clock.
+	time.Sleep(time.Millisecond * 200)
+	clock.Add(batchBufferTimeout + 1)
+	<-fetchObserver.FetchCompleted
+	fetchObserver.AssertRequestedRecords(t, []string{"4"})
+	fetchObserver.AssertFetchCount(t, 4)
 }

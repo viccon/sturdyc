@@ -24,15 +24,16 @@ func randKey(n int) string {
 
 type TestMetricsRecorder struct {
 	sync.Mutex
-	cacheHits       int
-	cacheMisses     int
-	refreshes       int
-	missingRecords  int
-	evictions       int
-	forcedEvictions int
-	evictedEntries  int
-	shards          map[int]int
-	batchSizes      []int
+	cacheHits            int
+	cacheMisses          int
+	backgroundRefreshes  int
+	synchronousRefreshes int
+	missingRecords       int
+	evictions            int
+	forcedEvictions      int
+	evictedEntries       int
+	shards               map[int]int
+	batchSizes           []int
 }
 
 func newTestMetricsRecorder(numShards int) *TestMetricsRecorder {
@@ -54,10 +55,16 @@ func (r *TestMetricsRecorder) CacheMiss() {
 	r.cacheMisses++
 }
 
-func (r *TestMetricsRecorder) Refresh() {
+func (r *TestMetricsRecorder) BackgroundRefresh() {
 	r.Lock()
 	defer r.Unlock()
-	r.refreshes++
+	r.backgroundRefreshes++
+}
+
+func (r *TestMetricsRecorder) SynchronousRefresh() {
+	r.Lock()
+	defer r.Unlock()
+	r.synchronousRefreshes++
 }
 
 func (r *TestMetricsRecorder) MissingRecord() {

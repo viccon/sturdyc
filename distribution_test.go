@@ -779,6 +779,7 @@ func TestPartialResponseForRefreshesDoesNotResultInMissingRecords(t *testing.T) 
 	ttl := time.Hour
 	minRefreshDelay := time.Minute * 5
 	maxRefreshDelay := time.Minute * 10
+	synchronousRefreshDelay := time.Minute * 30
 	refreshRetryInterval := time.Millisecond * 10
 	batchSize := 10
 	batchBufferTimeout := time.Minute
@@ -788,7 +789,7 @@ func TestPartialResponseForRefreshesDoesNotResultInMissingRecords(t *testing.T) 
 
 	c := sturdyc.New[string](capacity, numShards, ttl, evictionPercentage,
 		sturdyc.WithNoContinuousEvictions(),
-		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, refreshRetryInterval),
+		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, synchronousRefreshDelay, refreshRetryInterval),
 		sturdyc.WithMissingRecordStorage(),
 		sturdyc.WithRefreshCoalescing(batchSize, batchBufferTimeout),
 		sturdyc.WithDistributedStorageEarlyRefreshes(distributedStorage, refreshAfter),
