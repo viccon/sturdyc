@@ -133,8 +133,8 @@ Next, we'll start to look at some of the more _advanced features_.
 
 I have tried to design the API in a way that should make it effortless to add
 `sturdyc` to an existing application. To take advantage of the more advanced
-functionality that we'll see in the sections below you'll essentially just be
-interacting with two functions: `GetOrFetch` and `GetOrFetchBatch`.
+functionality you'll essentially just be interacting with two functions:
+`GetOrFetch` and `GetOrFetchBatch`.
 
 All you would have to do is to take your existing code:
 
@@ -153,7 +153,7 @@ func (c *Client) Order(ctx context.Context, id string) (Order, error) {
 }
 ```
 
-and wrap the actual lines that retrieves the data in a function, and then hand
+and wrap the lines of code that retrieves the data in a function, and then hand
 that over to our cache client:
 
 ```go
@@ -181,8 +181,10 @@ underlying data source.
 
 Most of our examples are going to be retrieving data from HTTP APIs, but it's
 just as easy to wrap a database query, a remote procedure call, a disk read, or
-any other I/O operation. We'll also see how we can use closures to pass query
-parameters and other options.
+any other I/O operation.
+
+We'll also see how we can use closures to pass query parameters and other
+options.
 
 # Stampede protection
 
@@ -253,7 +255,7 @@ returns a map with a numerical value for every ID:
 ```go
 	var count atomic.Int32
 	fetchFn := func(_ context.Context, ids []string) (map[string]int, error) {
-        // Increment the counter so that we can assert how many times this function was called.
+		// Increment the counter so that we can assert how many times this function was called.
 		count.Add(1)
 		time.Sleep(time.Second * 5)
 
@@ -279,9 +281,10 @@ IDs each:
 ```
 
 IDs can often be used to fetch data from multiple data sources. As an example,
-we might use an userId to fetch orders, payments, shipment options, etc. Hence,
-if we're using the cache with an API client, we'll want to prefix this user ID
-with the actual endpoint we're using in order to make the cache key unique.
+we might use an id to fetch a users orders, payments, shipment options, etc.
+Hence, if we're using the cache with an API client, we'll want to prefix this
+user id with the actual endpoint we're consuming in order to make the cache key
+unique.
 
 The package provides more functionality for this that we'll see later on, but
 for now we'll use the most simple version which adds a string prefix to every
@@ -291,7 +294,7 @@ ID:
 	keyPrefixFn := cacheClient.BatchKeyFn("my-data-source")
 ```
 
-This will result in cache keys like this:
+This will result in cache keys of this format:
 
 ```
 my-data-source-ID-1
@@ -309,8 +312,8 @@ We can now request each batch in a separate goroutine:
 		}()
 	}
 
-    // Sleep to give the goroutines above a chance to run.
-    // This ensures that the batches are in-flight.
+	// Sleep to give the goroutines above a chance to run.
+	// This ensures that the batches are in-flight.
 	time.Sleep(time.Second * 3)
 ```
 
@@ -320,11 +323,11 @@ Each goroutine is going to request two random IDs from our batches:
 
 ```go
 	// Launch another 5 goroutines that are going to pick two random IDs from any of our in-flight batches.
-    // e.g:
-    // [1,8]
-    // [4,11]
-    // [14,2]
-    // [6,15]
+	// e.g:
+	// [1,8]
+	// [4,11]
+	// [14,2]
+	// [6,15]
 	var wg sync.WaitGroup
 	for i := 0; i < 5; i++ {
 		wg.Add(1)
