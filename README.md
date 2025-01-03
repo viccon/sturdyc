@@ -34,8 +34,7 @@ this package in front of our distributed key-value store:
 &nbsp;
 
 In addition to this, we were also able to reduce our number of outgoing
-requests by more than 90% after enabling the _refresh coalescing_ option.
-
+requests by more than 90% after enabling the _refresh coalescing_ functionality.
 
 # Table of contents
 
@@ -72,31 +71,32 @@ The first thing you will have to do is to create a cache client to hold your
 configuration:
 
 ```go
-	// Maximum number of entries in the cache. Exceeding this number will trigger
-	// an eviction (as long as the "evictionPercentage" is greater than 0).
-	capacity := 10000
-	// Number of shards to use. Increasing this number will reduce write lock collisions.
-	numShards := 10
-	// Time-to-live for cache entries.
-	ttl := 2 * time.Hour
-	// Percentage of entries to evict when the cache reaches its capacity. Setting this
-	// to 0 will make writes a no-op until an item has either expired or been deleted.
-	evictionPercentage := 10
+// Maximum number of entries in the cache. Exceeding this number will trigger
+// an eviction (as long as the "evictionPercentage" is greater than 0).
+capacity := 10000
+// Number of shards to use. Increasing this number will reduce write lock collisions.
+numShards := 10
+// Time-to-live for cache entries.
+ttl := 2 * time.Hour
+// Percentage of entries to evict when the cache reaches its capacity. Setting this
+// to 0 will make writes a no-op until an item has either expired or been deleted.
+evictionPercentage := 10
 
-	// Create a cache client with the specified configuration.
-	cacheClient := sturdyc.New[int](capacity, numShards, ttl, evictionPercentage)
+// Create a cache client with the specified configuration.
+cacheClient := sturdyc.New[int](capacity, numShards, ttl, evictionPercentage)
 
-	cacheClient.Set("key1", 99)
-	log.Println(cacheClient.Size())
-	log.Println(cacheClient.Get("key1"))
+cacheClient.Set("key1", 99)
+log.Println(cacheClient.Size())
+log.Println(cacheClient.Get("key1"))
 
-	cacheClient.Delete("key1")
-	log.Println(cacheClient.Size())
-	log.Println(cacheClient.Get("key1"))
+cacheClient.Delete("key1")
+log.Println(cacheClient.Size())
+log.Println(cacheClient.Get("key1"))
 ```
 
-We're also able to provide a vast set of additional options which we are going
-to explore in the sections below.
+As the final argument to the `New` function, we're also able to provide a wide
+range of additional options, which we will explore in detail in the sections
+to follow.
 
 # Evictions
 
@@ -104,21 +104,21 @@ The cache runs a background job which continuously evicts expired records from
 each shard. However, there are options to both tweak the interval:
 
 ```go
-	cacheClient := sturdyc.New[int](capacity, numShards, ttl, evictionPercentage,
-		sturdyc.WithEvictionInterval(time.Second),
-	)
+cacheClient := sturdyc.New[int](capacity, numShards, ttl, evictionPercentage,
+    sturdyc.WithEvictionInterval(time.Second),
+)
 ```
 
 and disable the functionality altogether:
 
 ```go
-	cacheClient := sturdyc.New[int](capacity, numShards, ttl, evictionPercentage,
-		sturdyc.WithNoContinuousEvictions()
-	)
+cacheClient := sturdyc.New[int](capacity, numShards, ttl, evictionPercentage,
+    sturdyc.WithNoContinuousEvictions()
+)
 ```
 
 The latter can give you a slight performance boost in situations where you're
-unlikely to exceed any memory limits..
+unlikely to exceed any memory limits.
 
 When the cache reaches its capacity, a fallback eviction is triggered. This
 process performs evictions on a per-shard basis, selecting records for removal
