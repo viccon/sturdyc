@@ -37,11 +37,6 @@ this package in front of our distributed key-value store:
 In addition to this, we were also able to reduce our number of outgoing
 requests by more than 90% after enabling the _refresh coalescing_ option.
 
-# Installing
-
-```sh
-go get github.com/viccon/sturdyc
-```
 
 # Table of contents
 
@@ -50,6 +45,7 @@ if this is your first time using this package, I encourage you to **read these
 examples in the order they appear**. Most of them build on each other, and many
 share configurations.
 
+- [**installing**](https://github.com/viccon/sturdyc?tab=readme-ov-file#installing)
 - [**creating a cache client**](https://github.com/viccon/sturdyc?tab=readme-ov-file#creating-a-cache-client)
 - [**evictions**](https://github.com/viccon/sturdyc?tab=readme-ov-file#evictions)
 - [**get or fetch**](https://github.com/viccon/sturdyc?tab=readme-ov-file#get-or-fetch)
@@ -64,6 +60,12 @@ share configurations.
 - [**distributed storage**](https://github.com/viccon/sturdyc?tab=readme-ov-file#distributed-storage)
 - [**custom metrics**](https://github.com/viccon/sturdyc?tab=readme-ov-file#custom-metrics)
 - [**generics**](https://github.com/viccon/sturdyc?tab=readme-ov-file#generics)
+
+# Installing
+
+```sh
+go get github.com/viccon/sturdyc
+```
 
 # Creating a cache client
 
@@ -94,12 +96,30 @@ configuration:
 	log.Println(cacheClient.Get("key1"))
 ```
 
+We're also able to provide a vast set of additional options which we are going
+to explore in the sections below.
+
 # Evictions
 
 The cache runs a background job which continuously evicts expired records from
-each shard. However, there are options to both tweak the interval and disable
-the functionality altogether. This is can give you a slight performance boost
-in situations where you're unlikely to exceed any memory limits.
+each shard. However, there are options to both tweak the interval:
+
+```go
+	cacheClient := sturdyc.New[int](capacity, numShards, ttl, evictionPercentage,
+		sturdyc.WithEvictionInterval(time.Second),
+	)
+```
+
+and disable the functionality altogether:
+
+```go
+	cacheClient := sturdyc.New[int](capacity, numShards, ttl, evictionPercentage,
+		sturdyc.WithNoContinuousEvictions()
+	)
+```
+
+The latter can give you a slight performance boost in situations where you're
+unlikely to exceed any memory limits..
 
 When the cache reaches its capacity, a fallback eviction is triggered. This
 process performs evictions on a per-shard basis, selecting records for removal
