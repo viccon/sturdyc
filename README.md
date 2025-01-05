@@ -21,10 +21,10 @@ It has all the functionality you would expect from a caching library, but what
 _robust_ and _highly performant_.
 
 If you’re currently retrieving your data from a distributed cache, database, or
-API, you're probably able to add this package to your application for a
-significant performance boost. As you will see below, there are many ways to
-configure this package, and I encourage you to read through this README and
-experiment with the examples to get an understanding of how it works.
+API, you could probably consume it through this package for a significant
+performance boost. As you will see below, there are many ways to configure this
+package, and I encourage you to read through this README and experiment with
+the examples to get an understanding of how it works.
 
 Here is a screenshot showing the P95 latency improvements we've observed after adding
 this package in front of our distributed key-value store:
@@ -94,14 +94,15 @@ log.Println(cacheClient.Size())
 log.Println(cacheClient.Get("key1"))
 ```
 
-As the final argument to the `New` function, we're also able to provide a wide
-range of additional options, which we will explore in detail in the sections
+As the final argument to the `New` function, we're also able to provide a large
+number of additional options, which we will explore in detail in the sections
 to follow.
 
 # Evictions
 
-The cache runs a background job which continuously evicts expired records from
-each shard. However, there are options to both tweak the interval:
+The cache has two eviction strategies. One is a run a background job which
+continuously evicts expired records from each shard. However, there are options
+to both tweak the interval at which the job runs:
 
 ```go
 cacheClient := sturdyc.New[int](capacity, numShards, ttl, evictionPercentage,
@@ -109,7 +110,7 @@ cacheClient := sturdyc.New[int](capacity, numShards, ttl, evictionPercentage,
 )
 ```
 
-and disable the functionality altogether:
+as well as disabling the functionality altogether:
 
 ```go
 cacheClient := sturdyc.New[int](capacity, numShards, ttl, evictionPercentage,
@@ -118,25 +119,25 @@ cacheClient := sturdyc.New[int](capacity, numShards, ttl, evictionPercentage,
 ```
 
 The latter can give you a slight performance boost in situations where you're
-unlikely to exceed any memory limits.
+unlikely to ever exceed the capacity of your cache.
 
-When the cache reaches its capacity, a fallback eviction is triggered. This
-process performs evictions on a per-shard basis, selecting records for removal
-based on recency. The eviction algorithm uses
+However, when the cache capacity is reached, the second eviction strategy is
+triggered. This process performs evictions on a per-shard basis, selecting
+records for removal based on recency. The eviction algorithm uses
 [quickselect](https://en.wikipedia.org/wiki/Quickselect), which has an O(N)
-time complexity without requiring write locks on reads to update a recency
-list.
+time complexity without the overhead of requiring write locks on reads to
+update a recency list, as many LRU caches do.
 
 Next, we'll start to look at some of the more _advanced features_.
 
 # Get or fetch
 
-I have tried to design the API in a way that should make it effortless to add
-`sturdyc` to an existing application. To take advantage of the more advanced
-functionality you'll essentially just be interacting with two functions:
-`GetOrFetch` and `GetOrFetchBatch`.
+I have tried to design the API in a way that should make it effortless to start
+consuming your applications data through `sturdyc`. To take advantage of all
+the more advanced functionality and configurations you'll essentially just be
+interacting with two functions: `GetOrFetch` and `GetOrFetchBatch`.
 
-All you would have to do is to take your existing code:
+Let's say that we had the following code for fetching orders:
 
 ```go
 func (c *Client) Order(ctx context.Context, id string) (Order, error) {
@@ -153,8 +154,8 @@ func (c *Client) Order(ctx context.Context, id string) (Order, error) {
 }
 ```
 
-and wrap the lines of code that retrieves the data in a function, and then hand
-that over to our cache client:
+All we would have to do is wrap the lines of code that retrieves the data in a
+function, and then hand that over to our cache client:
 
 ```go
 func (c *Client) Order(ctx context.Context, id string) (Order, error) {
@@ -175,9 +176,9 @@ func (c *Client) Order(ctx context.Context, id string) (Order, error) {
 }
 ```
 
-The cache is then going to return the value from the cache if it's available,
-and otherwise it will call the `fetchFn` to retrieve the data from the
-underlying data source.
+The cache is then going to return the value from memory if it's available, and
+otherwise it will call the `fetchFn` to retrieve the data from the underlying
+data source.
 
 Most of our examples are going to be retrieving data from HTTP APIs, but it's
 just as easy to wrap a database query, a remote procedure call, a disk read, or
@@ -188,19 +189,18 @@ options.
 
 # Stampede protection
 
-Cache stampedes (also known as thundering herd) occur when many requests for a
-particular piece of data, which has just expired or been evicted from the
-cache, come in at once.
-
-Preventing this has been one of the key objectives for this package. We do not
-want to cause a significant load on an underlying data source every time one of
-our keys expires. To address this, `sturdyc` performs _in-flight_ tracking for
-every key.
+When we're consuming data through `sturdyc` we'll get automatic protection
+against cache stampedes. Cache stampades (also known as thundering herd) occur
+when many requests for a particular piece of data, which has just expired or
+been evicted from the cache, come in at once. Preventing this has been one of
+the key objectives. We do not want to cause a significant load on an underlying
+data source every time one of our keys expires. To address this, `sturdyc`
+performs _in-flight_ tracking for every key.
 
 We can demonstrate this using the `GetOrFetch` function which, as I mentioned
-before, takes a key, and a function for retrieving the data if it's not in the
+earlier, takes a key, and a function for retrieving the data if it's not in the
 cache. The cache is going to ensure that we never have more than a single
-request per key:
+in-flight request per key:
 
 ```go
 	var count atomic.Int32
@@ -243,7 +243,7 @@ and that the fetchFn only got called once:
 
 The in-flight tracking works for batch operations too. The cache is able to
 deduplicate a batch of cache misses, and then assemble the response by picking
-records from multiple in-flight requests.
+records from _multiple_ in-flight requests.
 
 To demonstrate this, we'll use the `GetOrFetchBatch` function, which can be
 used to retrieve data from a data source capable of handling requests for
@@ -282,9 +282,16 @@ IDs each:
 
 IDs can often be used to fetch data from multiple data sources. As an example,
 we might use an id to fetch a users orders, payments, shipment options, etc.
-Hence, if we're using the cache with an API client, we'll want to prefix this
-user id with the actual endpoint we're consuming in order to make the cache key
-unique.
+Hence, if we're using the cache with an API client that is capable of calling
+different endpoints, we'll want to prefix this user id with something in order
+to avoid key collisions for different data types, e.g:
+
+```sh
+// 1234 is our user id
+orders-1234
+payments-1234
+shipments-1234
+```
 
 The package provides more functionality for this that we'll see later on, but
 for now we'll use the most simple version which adds a string prefix to every
@@ -317,9 +324,10 @@ We can now request each batch in a separate goroutine:
 	time.Sleep(time.Second * 3)
 ```
 
-At this point, the cache should have in-flight requests for IDs 1-15. Knowing
-this, we'll test the stampede protection by launching another five goroutines.
-Each goroutine is going to request two random IDs from our batches:
+At this point, the cache should have 3 in-flight requests for IDs 1-15. Knowing
+this. Let's now test the stampede protection by launching another five
+goroutines. Each of these goroutines are going to request two random IDs from
+our previous batches:
 
 ```go
 	// Launch another 5 goroutines that are going to pick two random IDs from any of our in-flight batches.
@@ -344,8 +352,8 @@ Each goroutine is going to request two random IDs from our batches:
 ```
 
 Running this program, and looking at the logs, we'll see that the cache is able
-resolve all of these values without generating any additional outgoing requests
-even though the IDs are picked from different batches:
+resolve all of the keys from these new goroutines without generating any
+additional requests even though we're picking IDs from different batches:
 
 ```sh
 ❯ go run .
@@ -392,11 +400,13 @@ This is an important distinction because it means that the cache doesn't just
 naively refresh every key it's ever seen. Instead, it only refreshes the
 records that are actually in active rotation, while allowing unused keys to be
 deleted once their TTL expires. This also means that the request that gets
-chosen to refresh the value won’t retrieve the updated data right away. To
-address this, you can provide a synchronous refresh time, where you essentially
-say, "If the data is older than x, I want the refresh to be blocking."
+chosen to refresh the value won’t retrieve the updated data right away.
+However, there is also a synchronous refresh time that you can provide, where
+you essentially say, "If the data is older than x, I want the refresh to be
+blocking."
 
-Below is an example configuration that you can use to enable this functionality:
+Below is an example configuration that you can use to enable this
+functionality:
 
 ```go
 func main() {
