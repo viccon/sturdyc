@@ -20,14 +20,14 @@ It has all the functionality you would expect from a caching library, but what
 **sets it apart** are the features designed to make I/O heavy applications both
 _robust_ and _highly performant_.
 
-We have been using it in production to enhance both the performance and
-reliability of our services that retrieve data from distributed caches,
-databases, and APIs. While the API surface of this package is tiny, it offers
+We have been using this package in production to enhance both the performance
+and reliability of our services that retrieve data from distributed caches,
+databases, and APIs. While the API surface of sturdyc is tiny, it offers
 extensive configuration options. I encourage you to read through this README
-and experiment with the examples in order to understand its full capabilities.
+and experiment with the examples to understand its full capabilities.
 
-Here is a screenshot showing the P95 latency improvements we've observed after adding
-this package in front of our distributed key-value store:
+Here is a screenshot showing the P95 latency improvements we observed after
+adding this package in front of a distributed key-value store:
 
 &nbsp;
 <img width="1554" alt="Screenshot 2024-05-10 at 10 15 18" src="https://github.com/viccon/sturdyc/assets/12787673/adad1d4c-e966-4db1-969a-eda4fd75653a">
@@ -94,9 +94,10 @@ log.Println(cacheClient.Size())
 log.Println(cacheClient.Get("key1"))
 ```
 
-As the final argument to the `New` function, we're also able to provide a large
-number of additional options, which we will explore in detail in the sections
-to follow.
+
+The `New` function is variadic, and as the final argument we're also able to
+provide a wide range of configuration options, which we will explore in detail
+in the sections to follow.
 
 # Evictions
 
