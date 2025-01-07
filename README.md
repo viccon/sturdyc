@@ -20,11 +20,11 @@ It has all the functionality you would expect from a caching library, but what
 **sets it apart** are the features designed to make I/O heavy applications both
 _robust_ and _highly performant_.
 
-If you’re currently retrieving your data from a distributed cache, database, or
-API, you could probably consume it through this package for a significant
-performance boost. As you will see below, there are many ways to configure this
-package, and I encourage you to read through this README and experiment with
-the examples to get an understanding of how it works.
+We have been using it in production to enhance both the performance and
+reliability of our services that retrieve data from distributed caches,
+databases, and APIs. While the API surface of this package is tiny, it offers
+extensive configuration options. I encourage you to read through this README
+and experiment with the examples in order to understand its full capabilities.
 
 Here is a screenshot showing the P95 latency improvements we've observed after adding
 this package in front of our distributed key-value store:

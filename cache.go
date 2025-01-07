@@ -29,12 +29,12 @@ type Config struct {
 	metricsRecorder            DistributedMetricsRecorder
 	log                        Logger
 
-	earlyRefreshes         bool
-	minAsyncRefreshTime         time.Duration
-	maxAsyncRefreshTime         time.Duration
-	syncRefreshTime time.Duration
-	retryBaseDelay         time.Duration
-	storeMissingRecords    bool
+	earlyRefreshes      bool
+	minAsyncRefreshTime time.Duration
+	maxAsyncRefreshTime time.Duration
+	syncRefreshTime     time.Duration
+	retryBaseDelay      time.Duration
+	storeMissingRecords bool
 
 	bufferRefreshes      bool
 	batchMutex           sync.Mutex
