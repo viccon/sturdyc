@@ -5,8 +5,8 @@ type MetricsRecorder interface {
 	CacheHit()
 	// CacheMiss is called for every key that results in a cache miss.
 	CacheMiss()
-	// Refresh is called when a get operation results in a refresh.
-	BackgroundRefresh()
+	// AsynchronousRefresh is called when a get operation results in an asynchronous refresh.
+	AsynchronousRefresh()
 	// SynchronousRefresh is called when a get operation results in a synchronous refresh.
 	SynchronousRefresh()
 	// MissingRecord is called every time the cache is asked to
@@ -73,7 +73,7 @@ func (s *shard[T]) reportEntriesEvicted(n int) {
 }
 
 // reportCacheHits is used to report cache hits and misses to the metrics recorder.
-func (c *Client[T]) reportCacheHits(cacheHit, missingRecord, backgroundRefresh, synchronousRefresh bool) {
+func (c *Client[T]) reportCacheHits(cacheHit, missingRecord, asyncRefresh, syncRefresh bool) {
 	if c.metricsRecorder == nil {
 		return
 	}
@@ -82,11 +82,11 @@ func (c *Client[T]) reportCacheHits(cacheHit, missingRecord, backgroundRefresh, 
 		c.metricsRecorder.MissingRecord()
 	}
 
-	if backgroundRefresh {
-		c.metricsRecorder.BackgroundRefresh()
+	if asyncRefresh {
+		c.metricsRecorder.AsynchronousRefresh()
 	}
 
-	if synchronousRefresh {
+	if syncRefresh {
 		c.metricsRecorder.SynchronousRefresh()
 	}
 

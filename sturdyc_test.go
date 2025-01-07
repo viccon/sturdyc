@@ -55,7 +55,7 @@ func (r *TestMetricsRecorder) CacheMiss() {
 	r.cacheMisses++
 }
 
-func (r *TestMetricsRecorder) BackgroundRefresh() {
+func (r *TestMetricsRecorder) AsynchronousRefresh() {
 	r.Lock()
 	defer r.Unlock()
 	r.backgroundRefreshes++
