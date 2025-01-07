@@ -30,9 +30,9 @@ type Config struct {
 	log                        Logger
 
 	earlyRefreshes         bool
-	minRefreshTime         time.Duration
-	maxRefreshTime         time.Duration
-	synchronousRefreshTime time.Duration
+	minAsyncRefreshTime         time.Duration
+	maxAsyncRefreshTime         time.Duration
+	syncRefreshTime time.Duration
 	retryBaseDelay         time.Duration
 	storeMissingRecords    bool
 

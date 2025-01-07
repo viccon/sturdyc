@@ -169,11 +169,11 @@ func (s *shard[T]) set(key string, value T, isMissingRecord bool) bool {
 		// If there is a difference between the min- and maxRefreshTime we'll use that to
 		// set a random padding so that the refreshes get spread out evenly over time.
 		var padding time.Duration
-		if s.minRefreshTime != s.maxRefreshTime {
-			padding = time.Duration(rand.Int64N(int64(s.maxRefreshTime - s.minRefreshTime)))
+		if s.minAsyncRefreshTime != s.maxAsyncRefreshTime {
+			padding = time.Duration(rand.Int64N(int64(s.maxAsyncRefreshTime - s.minAsyncRefreshTime)))
 		}
-		newEntry.backgroundRefreshAt = now.Add(s.minRefreshTime + padding)
-		newEntry.synchronousRefreshAt = now.Add(s.synchronousRefreshTime)
+		newEntry.backgroundRefreshAt = now.Add(s.minAsyncRefreshTime + padding)
+		newEntry.synchronousRefreshAt = now.Add(s.syncRefreshTime)
 		newEntry.numOfRefreshRetries = 0
 	}
 

@@ -88,7 +88,7 @@ func getFetch[V, T any](ctx context.Context, c *Client[T], key string, fetchFn F
 
 // GetOrFetch attempts to retrieve the specified key from the cache. If the value
 // is absent, it invokes the fetchFn function to obtain it and then stores the result.
-// Additionally, when background refreshes are enabled, GetOrFetch determines if the record
+// Additionally, when early refreshes are enabled, GetOrFetch determines if the record
 // needs refreshing and, if necessary, schedules this task for background execution.
 //
 // Parameters:

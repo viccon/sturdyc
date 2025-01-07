@@ -1570,7 +1570,7 @@ All you have to do is implement one of these interfaces:
 type MetricsRecorder interface {
 	CacheHit()
 	CacheMiss()
-	BackgroundRefresh()
+	AsynchronousRefresh()
 	SynchronousRefresh()
 	MissingRecord()
 	ForcedEviction()
