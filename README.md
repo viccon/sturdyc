@@ -15,7 +15,7 @@
 high-throughput systems through features such as request coalescing and
 asynchronous refreshes. It combines the speed of in-memory caching with
 granular control over data freshness. At its core, `sturdyc` provides
-**non-blocking reads** and sharded writes for minimal lock contention. The
+**non-blocking reads** and **sharded writes** for minimal lock contention. The
 [xxhash](https://github.com/cespare/xxhash) algorithm is used for efficient key
 distribution.
 
@@ -127,7 +127,7 @@ cacheClient := sturdyc.New[int](capacity, numShards, ttl, evictionPercentage,
 The latter can give you a slight performance boost in situations where you're
 unlikely to ever exceed the capacity you've assigned to your cache.
 
-However, when the cache capacity is reached, the second eviction strategy is
+However, if the cache capacity is reached, the second eviction strategy is
 triggered. This process performs evictions on a per-shard basis, selecting
 records for removal based on recency. The eviction algorithm uses
 [quickselect](https://en.wikipedia.org/wiki/Quickselect), which has an O(N)
