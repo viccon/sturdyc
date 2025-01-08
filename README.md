@@ -420,7 +420,7 @@ log.Printf("fetchFn was called %d times\n", count.Load())
 ```
 
 Running this program, and looking at the logs, we'll see that the cache is able
-resolve all of the keys from these new goroutines without generating any
+resolve all of the ids from these new goroutines without generating any
 additional requests even though we're picking IDs from different batches:
 
 ```sh
@@ -452,15 +452,15 @@ applications this may be acceptable, but in others it can introduce stale
 reads. Additionally, once the cached value expires, the first request after
 expiration must refresh the cache, resulting in a longer response time for that
 user. This can make the average latency look very different from the P90–P99
-tail latencies, since those percentiles capture the refresh delays. This can
-make it difficult to configure appropriate alarms for your applications
-response times.
+tail latencies, since those percentiles capture the delays of having to go to
+the actual data source in order to refresh the cache. This in turn can make it
+difficult to configure appropriate alarms for your applications response times.
 
 `sturdyc` aims to give you a lot of control over these choices when you enable
 the early refreshes functionality. It will prevent your most frequently used
 records from ever expiring by continuously refreshing them in the background.
-This has a significant impact on your applications latency. We've seen the P99
-of some of our applications go from 50ms down to 1.
+This can have a significant impact on your applications latency. We've seen the
+P99 of some of our applications go from 50ms down to 1.
 
 One thing to note about these background refreshes is that they are scheduled
 if a key is **requested again** after a configurable amount of time has passed.
@@ -468,10 +468,16 @@ This is an important distinction because it means that the cache doesn't just
 naively refresh every key it's ever seen. Instead, it only refreshes the
 records that are actually in active rotation, while allowing unused keys to be
 deleted once their TTL expires. This also means that the request that gets
-chosen to refresh the value won’t retrieve the updated data right away.
-However, there is also a synchronous refresh time that you can provide, where
-you essentially say, "If the data is older than x, I want the refresh to be
-blocking."
+chosen to refresh the value won’t retrieve the updated data right away as the
+refresh happens asynchronously.
+
+However, asynchronous refreshes can be problematic. What if some keys only get
+requested very infrequently? If the refreshes are done in the background the
+latency will be low, but the data itself might be stale.
+
+To solve this, you also get to provide a synchronous refresh time. This
+essentially tells the cache: "If the data is older than x, I want the refresh
+to be blocking and wait for the response."
 
 Below is an example configuration that you can use to enable this
 functionality:
@@ -587,30 +593,33 @@ come in for this key, the stampede protection will kick in and make the refresh
 synchronous for all of them, while also ensuring that only a single request is
 made to the underlying data source.
 
-I also like to use this feature to provide a degraded experience when an
+Sometimes I like to use this feature to provide a degraded experience when an
 upstream system encounters issues. For this, I choose a high TTL and a low
 refresh time, so that when everything is working as expected, the records are
 refreshed continuously. However, if the upstream system stops responding, I can
 rely on cached records for the entire duration of the TTL.
 
-One important note is that the synchronous refresh time isn’t affected by the
-exponential backoff. The number of background refreshes is going to get reduced
-if an upsteam system is experiencing errors. However, if we reach a point where
-all of the records are older than the synchronous refresh time, we're going to
-send a steady stream of outgoing requests. That is because I think of the
-synchronous refresh time as "I really don’t want the data to be older than
-this," so if a synchronous refresh fails, I want the very next request to
-attempt another refresh, because the data is now older than I’d like it to be.
+This also brings us to the final argument of the `WithEarlyRefreshes` function
+which is the retry base delay. This delay is used to create an exponential
+backoff for our background requests if a data source starts to return errors.
+Please note that this **only** applies to background refreshes. If we reach a
+point where all of the records are older than the synchronous refresh time,
+we're going to send a steady stream of outgoing requests. That is because I
+think of the synchronous refresh time as "I really don’t want the data to be
+older than this, but I want the possibility of using an even higher TTL in
+order to serve stale." Therefore, if a synchronous refresh fails, I want the
+very next request for that key to attempt another refresh.
 
-Also, if you don't want this functionality you could just set a short TTL. The
-cache will never return a record where the TTL has expired.
+Also, if you don't want any of this serve stale functionality you could just
+use short TTLs. The cache will never return a record where the TTL has expired.
 
 The entire example is available [here.](https://github.com/viccon/sturdyc/tree/main/examples/refreshes)
 
 # Deletions
 
-What if the record was deleted? Our cache might use a 2-hour-long TTL, and we
-definitely don't want it to take that long for the deletion to propagate.
+What if a record gets deleted at the underlying data source? Our cache might
+use a 2-hour-long TTL, and we definitely don't want it to take that long for
+the deletion to propagate.
 
 However, if we were to modify our client from the previous example so that it
 returns an error after the first request:
@@ -645,8 +654,9 @@ cd examples/refreshes
 go run .
 ```
 
-We'll see that the exponential backoff kicks in, resulting in more iterations
-for every refresh, but the value is still being printed:
+We'll see that the exponential backoff kicks in, delaying our background
+refreshes which results in more iterations for every refresh, but the value is
+still being printed:
 
 ```sh
 2024/05/09 13:22:03 Fetching value for key: key
@@ -689,7 +699,7 @@ empty list, specific error message, etc. There is no easy way for the cache to
 figure this out implicitly.
 
 It couldn't simply delete a record every time it receives an error. If an
-upstream system goes down, we want to be able to serve stale data for the
+upstream system goes down, we want to be able to serve the data for the
 duration of the TTL, while reducing the frequency of our refreshes to make it
 easier for them to recover.
 
@@ -708,8 +718,6 @@ fetchFn := func(_ context.Context) (string, error) {
 ```
 
 This tells the cache that the record is no longer available at the underlying data source.
-Therefore, if this record is being fetched as a background refresh, the cache will quickly see
-if it has a record for this key, and subsequently delete it.
 
 If we run this application again we'll see that it works, and that we're no
 longer getting any cache hits. This leads to outgoing requests for every
@@ -749,8 +757,8 @@ just a single ID wasn't found:
 	}
 ```
 
-and then have the cache swallow that error and return nil, felt much less
-intuitive.
+and then have the cache either swallow that error and return nil, or return the
+map with the error, felt much less intuitive.
 
 This code is based on the example available [here.](https://github.com/viccon/sturdyc/tree/main/examples/refreshes)
 
@@ -922,7 +930,7 @@ type BatchFetchFn[T any] func(ctx context.Context, ids []string) (map[string]T, 
 ```
 
 The cache can use this to iterate through the response map, again apply the
-`keyFn` to each ID, and then store each record individually in the cache.
+`keyFn` to each ID, and then store each record individually.
 
 Sometimes, the function signature for the `BatchFetchFn` can feel too limited.
 You may need additional options and not just the IDs to retrieve the data. But
@@ -1061,15 +1069,26 @@ func (c *Client) MoviesByIDs(ctx context.Context, ids []string, opts MoviesByIDs
 }
 ```
 
-The API clients `MoviesByIDs` function calls an external API to fetch movies by
-IDs, and the `BatchFetchFn` that we're passing to `sturdyc` uses a closure to
-provide the query parameters we need.
+The API clients `MoviesByIDs` method calls an external API to fetch movies by
+IDs, and the `BatchFetchFn` that we're passing to `sturdyc` has a closure over
+the query parameters we need.
 
 However, one **important** thing to note here is that the ID is _no longer_
-enough to _uniquely_ identify a record in our cache. The query parameters will
-most likely be used by the system we're calling to transform the data in
-various ways. Hence, we should cache each movie once for each permutation of
-our options:
+enough to _uniquely_ identify a record in our cache even with the basic prefix
+function we've used before. It will no longer work to just have cache keys that
+looks like this:
+
+```
+movies-ID-1
+movies-ID-2
+movies-ID-3
+```
+
+Now why is that? If you think about it, the query parameters will most likely
+be used by the system we're calling to transform the data in various ways.
+Hence, we need to store a movie not only once per ID, but also once per
+transformation. In other terms, we should cache each movie once for each
+permutation of our options:
 
 ```
 IncludeUpcoming: true  IncludeUpsell: true
@@ -1080,8 +1099,7 @@ IncludeUpcoming: false IncludeUpsell: true
 
 This is what the `PermutatedBatchKeyFn` is used for. It takes a prefix and a
 struct which internally it uses reflection on in order to concatenate the
-**exported** fields to form a unique cache key that would look something like
-this:
+**exported** fields to form a unique cache key that would look like this:
 
 ```
 // movies-by-ids is our prefix that we passed as the
@@ -1166,7 +1184,7 @@ func main() {
 ```
 
 At this point, the cache has stored each record individually for each option
-set. We can imagine that the keys would look something like this:
+set. The keys would look something like this:
 
 ```
 FEDEX-2024-04-06-ID-1
@@ -1346,17 +1364,17 @@ go run .
 ```
 
 The number of refreshes went from **9** to **3**. Imagine what a batch size of
-50 would could do for your applications performance!
+50 could do for your applications performance!
 
 There is more information about this in the section about metrics, but for our
-production applications we're also using the caches `WithMetrics` option so
-that we can monitor how well our refreshes are performing:
+production applications we're also using the `WithMetrics` option so that we
+can monitor how well our refreshes are performing:
 
 <img width="941" alt="Screenshot 2024-05-04 at 12 38 04" src="https://github.com/viccon/sturdyc/assets/12787673/b1359867-f1ef-4a09-8c75-d7d2360726f1">
-> This chart shows the batch sizes for our coalesced refreshes.
+This chart shows the batch sizes for our coalesced refreshes.
 
 <img width="940" alt="Screenshot 2024-05-04 at 12 38 20" src="https://github.com/viccon/sturdyc/assets/12787673/de7f00ee-b14d-443b-b69e-91e19665c252">
-> This chart shows the average batch size of our refreshes for two different data sources
+This chart shows the average batch size of our refreshes for two different data sources
 
 The entire example is available [here.](https://github.com/viccon/sturdyc/tree/main/examples/buffering)
 
@@ -1387,19 +1405,19 @@ are making use of the `GetOrFetchBatch` function, we'll ask the cache (using
 the `WithRefreshCoalescing` option) to delay them for up to 15 seconds or until
 a batch size of 10 is reached.
 
-What if a key that hasn't been refreshed in the last 120 seconds is suddenly
-requested? Given the `synchronousRefreshDelay` passed to the
-`WithEarlyRefreshes` option, the cache will skip any background refresh and
-instead perform a synchronous refresh to ensure that the data is fresh. Did
-1000 requests suddenly arrive for this key? No problem, the in-flight tracking
-makes sure that we only make **one** request to the underlying data source.
-This works for refreshes too by the way. If 1000 requests arrived for a key
-that was 3 seconds old (greater than our `maxRefreshDelay`) we'd only schedule
-a single refresh for it.
+What if we get a request for a key that hasn't been refreshed in the last 120
+seconds? Given the `synchronousRefreshDelay` passed to the `WithEarlyRefreshes`
+option, the cache will skip any background refresh and instead perform a
+synchronous refresh to ensure that the data is fresh. Did 1000 requests
+suddenly arrive for this key? No problem, the in-flight tracking makes sure
+that we only make **one** request to the underlying data source. This works for
+refreshes too by the way. If 1000 requests arrived for a key that was 3 seconds
+old (greater than our `maxRefreshDelay`) we would only schedule a single
+refresh for it.
 
 Is the underlying data source experiencing downtime? With our TTL of two-hours
-we'll be able to provide a degraded experience to our users by serving stale
-data from our cache while continuously trying to refresh it in the background.
+we'll be able to provide a degraded experience to our users by serving the data
+we have in our cache.
 
 # Passthrough
 
@@ -1410,25 +1428,22 @@ still perform in-flight tracking and deduplicate your requests.
 
 # Distributed storage
 
-I think it's important to read the previous sections before jumping here in
-order to understand all the heavy lifting `sturdyc` does when it comes to
-creating cache keys, tracking in-flight requests, refreshing records in the
-background to improve latency, and buffering/coalescing requests to minimize
-the number of round trips to underlying data sources. Because, as you’ll soon
-see, we’ll leverage these features when adding distributed storage to our cache
-as well.
+It's important to read the previous sections before jumping here in order to
+understand how `sturdyc` works when it comes to creating cache keys, tracking
+in-flight requests, refreshing records in the background, and
+buffering/coalescing requests to minimize the number of round trips we have to
+make to an underlying data source. As you'll soon see, we'll leverage all of
+these features when we're adding distributed storage.
 
-However, let's first try and understand when this functionality could be
-useful. I like to use this feature when I'm building an application that is
-able to achieve a high cache hit rate, while also being subject to large bursts
-of traffic.
-
-To provide a real life example example of this, I've used this  in production
-for a large streaming application. The content was fairly static; new movies,
-series, and episodes were only ingested a couple of times an hour. That meant
-that we could achieve a very high hit rate for our data sources. However,
-during the evenings, when a popular football match or TV show was about to
-start, our traffic could spike by a factor of 20 within less than a minute.
+However, let's first understand when this functionality can be useful. This
+feature is particularly valuable when building applications that can achieve a
+high cache hit rate while also being subject to large bursts of requests. As an
+example, I've used this in production for a large streaming application. The
+content was fairly static - new movies, series, and episodes were only ingested
+a couple of times an hour. This meant that we could achieve a very high hit
+rate for our data sources. However, during the evenings, when a popular
+football match or TV show was about to start, our traffic could spike by a
+factor of 20 within less than a minute.
 
 To illustrate the problem further, let’s say the hit rate for our in-memory
 cache was 99.8%. Then, when we received that large burst of traffic, our
@@ -1438,12 +1453,12 @@ significant load on our underlying data sources as soon as they came online,
 because every request they received led to an outgoing request to the data
 source. And these data sources had gotten used to being shielded from most of
 the traffic by the older containers high hit-rate and refresh coalescing usage.
-Hence, what was a 20x spike for us could become a 200x spike for them until our
-new containers had warmed their cache.
+Hence, what was a 20x spike for us could easily become a 200x spike for them
+until our new containers had warmed their cache.
 
 Therefore, I decided to add the ability to have the containers sync their
 in-memory cache with a distributed key-value store that would have an easier
-time to absorb these bursts.
+time absorbing these bursts.
 
 Adding distributed storage to the cache is, from the package's point of view,
 essentially just another data source with a higher priority. Hence, we're still
@@ -1510,7 +1525,7 @@ cacheClient := sturdyc.New[string](capacity, numShards, ttl, evictionPercentage,
 policies of this storage. `sturdyc` will only make sure that it queries this
 data source first, and then writes the keys and values to this storage as soon
 as it has gone out to an underlying data source and refreshed them. Therefore,
-I'd advice you  touse the configuration above with short TTLs for the
+I'd advice you to use the configuration above with short TTLs for the
 distributed storage, or things might get too stale. I mostly think it's useful
 if you're consuming data sources that don't handle bursts from new containers
 very well.
@@ -1544,8 +1559,8 @@ this:
 ```
 
 Above we can see that the underlying data source was only visited **once**, and
-that the remaining background refreshes that the in-memory cache performed went
-only went to the distributed storage.
+that the remaining background refreshes that the in-memory cache performed only
+went to the distributed storage.
 
 # Distributed storage early refreshes
 
@@ -1566,7 +1581,7 @@ cacheClient := sturdyc.New[string](capacity, numShards, ttl, evictionPercentage,
 ```
 
 With a configuration like this, I would usually set the TTL for the distributed
-storage to something like an hour. However, if the cache queries the
+storage to something like an hour. However, if the `sturdyc` queries the
 distributed storage and finds that a record is older than 1 minute (the second
 argument to the function), it will refresh the record from the underlying data
 source, and then write the updated value back to it. So the interaction with
@@ -1580,8 +1595,8 @@ the distributed storage would look something like this:
 - If the call to refresh the data failed, the cache will use the value from the
   distributed storage as a fallback.
 
-However, there is one more scenario we must cover that requires two additional
-methods to be implemented:
+However, there is one more scenario we must cover now that requires two
+additional methods to be implemented:
 
 ```go
 type DistributedStorageEarlyRefreshes interface {
@@ -1682,16 +1697,16 @@ cacheDistributedMetrics := sturdyc.New[any](
 Below are a few images where some of these metrics have been visualized in Grafana:
 
 <img width="939" alt="Screenshot 2024-05-04 at 12 36 43" src="https://github.com/viccon/sturdyc/assets/12787673/1f630aed-2322-4d3a-9510-d582e0294488">
-> Here we can how often we're able to serve from memory.
+Here we can how often we're able to serve from memory.
 
 <img width="942" alt="Screenshot 2024-05-04 at 12 37 39" src="https://github.com/viccon/sturdyc/assets/12787673/25187529-28fb-4c4e-8fe9-9fb48772e0c0">
-> This image displays the number of items we have cached.
+This image displays the number of items we have cached.
 
 <img width="941" alt="Screenshot 2024-05-04 at 12 38 04" src="https://github.com/viccon/sturdyc/assets/12787673/b1359867-f1ef-4a09-8c75-d7d2360726f1">
-> This chart shows the batch sizes for the buffered refreshes.
+This chart shows the batch sizes for the buffered refreshes.
 
 <img width="940" alt="Screenshot 2024-05-04 at 12 38 20" src="https://github.com/viccon/sturdyc/assets/12787673/de7f00ee-b14d-443b-b69e-91e19665c252">
-> And lastly, we can see the average batch size of our refreshes for two different data sources.
+And lastly, we can see the average batch size of our refreshes for two different data sources.
 
 # Generics
 
