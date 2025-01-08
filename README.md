@@ -33,8 +33,10 @@ adding this package in front of a distributed key-value store:
 <img width="1554" alt="Screenshot 2024-05-10 at 10 15 18" src="https://github.com/viccon/sturdyc/assets/12787673/adad1d4c-e966-4db1-969a-eda4fd75653a">
 &nbsp;
 
-In addition to this, we were also able to reduce our number of outgoing
-requests by more than 90% after enabling the _refresh coalescing_ functionality.
+In addition to this, we were able to reduce our outgoing requests by more than
+90% after utilizing both the in-flight tracking of cache keys and refresh
+coalescing functionality, which in turn has allowed us to use fewer containers
+and much cheaper clusters.
 
 # Table of contents
 
