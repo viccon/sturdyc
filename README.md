@@ -101,7 +101,7 @@ in the sections to follow.
 
 # Evictions
 
-The cache has two eviction strategies. One is a run a background job which
+The cache has two eviction strategies. One is a background job which
 continuously evicts expired records from each shard. However, there are options
 to both tweak the interval at which the job runs:
 
@@ -120,7 +120,7 @@ cacheClient := sturdyc.New[int](capacity, numShards, ttl, evictionPercentage,
 ```
 
 The latter can give you a slight performance boost in situations where you're
-unlikely to ever exceed the capacity of your cache.
+unlikely to ever exceed the capacity you've assigned to your cache.
 
 However, when the cache capacity is reached, the second eviction strategy is
 triggered. This process performs evictions on a per-shard basis, selecting
@@ -133,12 +133,11 @@ Next, we'll start to look at some of the more _advanced features_.
 
 # Get or fetch
 
-I have tried to design the API in a way that should make it effortless to start
-consuming your applications data through `sturdyc`. To take advantage of all
-the more advanced functionality and configurations you'll essentially just be
-interacting with two functions: `GetOrFetch` and `GetOrFetchBatch`.
+The API has been designed to make the process of integrating `sturdyc` with any
+data source as straightforward as possible. The more advanced functionality is
+accessed through just two core functions: `GetOrFetch` and `GetOrFetchBatch`
 
-Let's say that we had the following code for fetching orders:
+As an example, let's say that we had the following code for fetching orders:
 
 ```go
 func (c *Client) Order(ctx context.Context, id string) (Order, error) {
