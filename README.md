@@ -25,9 +25,10 @@ make I/O heavy applications both _robust_ and _highly performant_.
 
 We have been using this package in production to enhance both the performance
 and reliability of our services that retrieve data from distributed caches,
-databases, and APIs. While the API surface of sturdyc is tiny, it offers
-extensive configuration options. I encourage you to read through this README
-and experiment with the examples to understand its full capabilities.
+databases, and external APIs. While the API surface of sturdyc is tiny, it
+offers extensive configuration options. I encourage you to read through this
+README and experiment with the examples in order to understand its full
+capabilities.
 
 Here is a screenshot showing the P95 latency improvements we observed after
 adding this package in front of a distributed key-value store:
@@ -127,9 +128,9 @@ cacheClient := sturdyc.New[int](capacity, numShards, ttl, evictionPercentage,
 The latter can give you a slight performance boost in situations where you're
 unlikely to ever exceed the capacity you've assigned to your cache.
 
-However, if the cache capacity is reached, the second eviction strategy is
-triggered. This process performs evictions on a per-shard basis, selecting
-records for removal based on recency. The eviction algorithm uses
+However, if the capacity is reached, the second eviction strategy is triggered.
+This process performs evictions on a per-shard basis, selecting records for
+removal based on recency. The eviction algorithm uses
 [quickselect](https://en.wikipedia.org/wiki/Quickselect), which has an O(N)
 time complexity without the overhead of requiring write locks on reads to
 update a recency list, as many LRU caches do.
@@ -221,8 +222,8 @@ To illustrate, let's say that we're building a Github client and want to use
 this package to get around their rate limit. The username itself wouldn't make
 for a good cache key because we could use it to fetch gists, commits,
 repositories, etc. Therefore, `GetOrFetchBatch` takes a `KeyFn` that prefixes
-each ID with something to identify the data source so that we don't get cache
-key collisions:
+each ID with something to identify the data source so that we don't end up with
+cache key collisions:
 
 ```go
 gistPrefixFn := cacheClient.BatchKeyFn("gists")
@@ -231,8 +232,8 @@ gists, err := cacheClient.GetOrFetchBatch(ctx, userIDs, gistPrefixFn, fetchGists
 commits, err := cacheClient.GetOrFetchBatch(ctx, userIDs, commitPrefixFn, fetchCommits)
 ```
 
-We're now able to use the same cache for multiple data sources, and internally
-we'd get cache keys of this format:
+We're now able to use the _same_ cache for _multiple_ data sources, and
+internally we'd get cache keys of this format:
 
 ```
 gists-ID-viccon
@@ -264,9 +265,9 @@ func (client *GithubClient) Gists(ctx context.Context, usernames []string) (map[
 }
 ```
 
-In the example above, the fetchFunc would get called for users who don't have
-their gists in our cache, and the cacheMisses slice would contain their actual
-usernames (without the prefix from the keyFn).
+In the example above, the `fetchFunc` would get called for users where we don't
+have their gists in our cache, and the cacheMisses slice would contain their
+actual usernames (without the prefix from the keyFn).
 
 The map that we return from our `fetchFunc` should have the IDs (in this case the
 usernames) as keys, and the actual data that we want to cache (the gist) as the
@@ -389,8 +390,8 @@ time.Sleep(time.Second * 2)
 At this point, the cache should have 3 in-flight requests for IDs 1-15:
 
 ```sh
-[1,2,3,4,5] => REQUEST 1 (IN-FLIGHT)
-[6,7,8,9,10] => REQUEST 2 (IN-FLIGHT)
+[1,2,3,4,5]      => REQUEST 1 (IN-FLIGHT)
+[6,7,8,9,10]     => REQUEST 2 (IN-FLIGHT)
 [11,12,13,14,15] => REQUEST 3 (IN-FLIGHT)
 ```
 
@@ -422,9 +423,9 @@ log.Printf("fetchFn was called %d times\n", count.Load())
 ```
 
 Running this program, and looking at the logs, we'll see that the cache is able
-resolve all of the ids from these new goroutines without generating any
+to resolve all of the ids from these new goroutines without generating any
 additional requests even though we're picking IDs from different in-flight
-batches:
+requests:
 
 ```sh
 ❯ go run .
@@ -460,10 +461,10 @@ the actual data source in order to refresh the cache. This in turn can make it
 difficult to configure appropriate alarms for your applications response times.
 
 `sturdyc` aims to give you a lot of control over these choices when you enable
-the early refreshes functionality. It will prevent your most frequently used
-records from ever expiring by continuously refreshing them in the background.
-This can have a significant impact on your applications latency. We've seen the
-P99 of some of our applications go from 50ms down to 1.
+the **early refreshes** functionality. It will prevent your most frequently
+used records from ever expiring by continuously refreshing them in the
+background. This can have a significant impact on your applications latency.
+We've seen the P99 of some of our applications go from 50ms down to 1.
 
 One thing to note about these background refreshes is that they are scheduled
 if a key is **requested again** after a configurable amount of time has passed.
@@ -474,10 +475,10 @@ deleted once their TTL expires. This also means that the request that gets
 chosen to refresh the value won’t retrieve the updated data right away as the
 refresh happens asynchronously.
 
-Asynchronous refreshes present challenges with infrequently requested keys.
-When the refreshes are done in the background the latency will be low, but the
-data might feel flaky or stale if we're not asking for the key again soon after
-it has been refreshed.
+However, asynchronous refreshes present challenges with infrequently requested
+keys. When the refreshes are done in the background the latency will be low,
+but the data might feel flaky or stale if we're not asking for the key again
+soon after so that it is being continuously refreshed.
 
 To solve this, you also get to provide a synchronous refresh time. This
 essentially tells the cache: "If the data is older than x, I want the refresh
@@ -526,7 +527,7 @@ func NewAPI(c *sturdyc.Client[string]) *API {
 
 func (a *API) Get(ctx context.Context, key string) (string, error) {
 	// This could be an API call, a database query, etc.
-    fetchFn := func(_ context.Context) (string, error) {
+	fetchFn := func(_ context.Context) (string, error) {
 		log.Printf("Fetching value for key: %s\n", key)
 		return "value", nil
 	}
@@ -615,6 +616,7 @@ very next request for that key to attempt another refresh.
 
 Also, if you don't want any of this serve stale functionality you could just
 use short TTLs. The cache will never return a record where the TTL has expired.
+I'm just trying to showcase some different ways to leverage this functionality!
 
 The entire example is available [here.](https://github.com/viccon/sturdyc/tree/main/examples/refreshes)
 
@@ -788,8 +790,8 @@ the upstream eventually returns a valid response, we'll see it propagate to our
 cache.
 
 To illustrate, I'll make some small modifications to the code from the previous
-example. The only thing I'm going to change is to make the API client return a
-`ErrNotFound` for the first three requests:
+example. I'm going to to make the API client return a `ErrNotFound` for the
+first three requests:
 
 ```go
 type API struct {
@@ -861,7 +863,7 @@ refreshes, and then transitions into having a value:
 2024/05/09 21:25:28 Record does not exist.
 2024/05/09 21:25:28 Record does not exist.
 2024/05/09 21:25:28 Fetching value for key: key
-2024/05/09 21:25:28 Value: value
+2024/05/09 21:25:28 Value: value // Look, the value exists now!
 2024/05/09 21:25:28 Value: value
 2024/05/09 21:25:28 Value: value
 2024/05/09 21:25:28 Fetching value for key: key
@@ -889,7 +891,7 @@ One challenge with caching batchable endpoints is that you have to find a way
 to reduce the number of cache keys. Consider an endpoint that allows fetching
 10,000 records in batches of 20. The IDs for the batch are supplied as query
 parameters, for example, `https://example.com?ids=1,2,3,4,5,...20`. If we were
-to use this as the cache key, the way many CDNs would do, we could quickly
+to use this as the cache key, the way many CDNs would, we could quickly
 calculate the number of keys we would generate like this:
 
 $$ C(n, k) = \binom{n}{k} = \frac{n!}{k!(n-k)!} $$
@@ -923,9 +925,10 @@ func (c *Client[T]) GetOrFetchBatch(ctx context.Context, ids []string, keyFn Key
 
 What the cache does is that it takes the IDs, applies the `keyFn` to them, and
 then checks each key individually if it's present in the cache. The keys that
-aren't present will be fetched using the `fetchFn`.
+aren't present will be passed to the `fetchFn`.
 
-The `fetchFn` is going to have this signature where it returns a map where the ID is the key:
+The `fetchFn` has this signature where it returns a map where the ID is the
+key:
 
 ```go
 type BatchFetchFn[T any] func(ctx context.Context, ids []string) (map[string]T, error)
@@ -951,14 +954,14 @@ func NewAPI(c *sturdyc.Client[string]) *API {
 }
 
 func (a *API) GetBatch(ctx context.Context, ids []string) (map[string]string, error) {
-    // We are going to pass a cache a key function that prefixes each id with
-    // the string "some-prefix", and adds an -ID- separator before the actual
-    // id. This makes it possible to save the same id for different data
-    // sources as the keys would look something like this: some-prefix-ID-1234
+	// We are going to pass a cache a key function that prefixes each id with
+	// the string "some-prefix", and adds an -ID- separator before the actual
+	// id. This makes it possible to save the same id for different data
+	// sources as the keys would look something like this: some-prefix-ID-1234
 	cacheKeyFn := a.BatchKeyFn("some-prefix")
 
 	// The fetchFn is only going to retrieve the IDs that are not in the cache. Please
-    // note that the cacheMisses is going to contain the actual IDs, not the cache keys.
+	// note that the cacheMisses is going to contain the actual IDs, not the cache keys.
 	fetchFn := func(_ context.Context, cacheMisses []string) (map[string]string, error) {
 		log.Printf("Cache miss. Fetching ids: %s\n", strings.Join(cacheMisses, ", "))
 		// Batch functions should return a map where the key is the id of the record.
@@ -1075,7 +1078,7 @@ The API clients `MoviesByIDs` method calls an external API to fetch movies by
 IDs, and the `BatchFetchFn` that we're passing to `sturdyc` has a closure over
 the query parameters we need.
 
-However, one **important** thing to note here is that the ID is _no longer_
+However, one **important** thing to note here is that the ID is **no longer**
 enough to _uniquely_ identify a record in our cache even with the basic prefix
 function we've used before. It will no longer work to just have cache keys that
 looks like this:
@@ -1093,10 +1096,10 @@ transformation. In other terms, we should cache each movie once for each
 permutation of our options:
 
 ```
-IncludeUpcoming: true  IncludeUpsell: true
-IncludeUpcoming: false IncludeUpsell: false
-IncludeUpcoming: true  IncludeUpsell: false
-IncludeUpcoming: false IncludeUpsell: true
+ID 1 IncludeUpcoming: true  IncludeUpsell: true
+ID 1 IncludeUpcoming: false IncludeUpsell: false
+ID 1 IncludeUpcoming: true  IncludeUpsell: false
+ID 1 IncludeUpcoming: false IncludeUpsell: true
 ```
 
 This is what the `PermutatedBatchKeyFn` is used for. It takes a prefix and a
@@ -1246,9 +1249,9 @@ The entire example is available [here.](https://github.com/viccon/sturdyc/tree/m
 As you may recall, our client is using the `WithEarlyRefreshes` option to
 refresh the records in the background whenever their keys are requested again
 after a certain amount of time has passed. And as seen in the example above,
-we're successfully storing the records once for every permutation of the
-options we use to retrieve it. However, we're not taking advantage of the
-endpoint's batch capabilities.
+we're successfully storing and refreshing the records once for every
+permutation of the options we used to retrieve it. However, we're not taking
+advantage of the endpoint's batch capabilities.
 
 To make this more efficient, we can enable the **refresh coalescing**
 functionality, but before we'll update our example to use it let's just take a
@@ -1434,28 +1437,30 @@ understand how `sturdyc` works when it comes to creating cache keys, tracking
 in-flight requests, refreshing records in the background, and
 buffering/coalescing requests to minimize the number of round trips we have to
 make to an underlying data source. As you'll soon see, we'll leverage all of
-these features when we're adding distributed storage.
+these features for the distributed storage too.
 
 However, let's first understand when this functionality can be useful. This
 feature is particularly valuable when building applications that can achieve a
-high cache hit rate while also being subject to large bursts of requests. As an
-example, I've used this in production for a large streaming application. The
-content was fairly static - new movies, series, and episodes were only ingested
-a couple of times an hour. This meant that we could achieve a very high hit
-rate for our data sources. However, during the evenings, when a popular
-football match or TV show was about to start, our traffic could spike by a
-factor of 20 within less than a minute.
+high cache hit rate while also being subject to large bursts of requests.
+
+As an example, I've used this in production for a large streaming application.
+The content was fairly static - new movies, series, and episodes were only
+ingested a couple of times an hour. This meant that we could achieve a very
+high hit rate for our data sources. However, during the evenings, when a
+popular football match or TV show was about to start, our traffic could spike
+by a factor of 20 within less than a minute.
 
 To illustrate the problem further, let’s say the hit rate for our in-memory
 cache was 99.8%. Then, when we received that large burst of traffic, our
 auto-scaling would begin provisioning new containers. These containers would
 obviously be brand new, with an initial hit rate of 0%. This would cause a
 significant load on our underlying data sources as soon as they came online,
-because every request they received led to an outgoing request to the data
-source. And these data sources had gotten used to being shielded from most of
-the traffic by the older containers high hit-rate and refresh coalescing usage.
-Hence, what was a 20x spike for us could easily become a 200x spike for them
-until our new containers had warmed their cache.
+because every request they received led to a cache miss so that we had to make
+an outgoing request to the data source. And these data sources had gotten used
+to being shielded from most of the traffic by the older containers high
+hit-rate and refresh coalescing usage. Hence, what was a 20x spike for us could
+easily become a 200x spike for them until our new containers had warmed their
+caches.
 
 Therefore, I decided to add the ability to have the containers sync their
 in-memory cache with a distributed key-value store that would have an easier
@@ -1528,8 +1533,8 @@ data source first, and then writes the keys and values to this storage as soon
 as it has gone out to an underlying data source and refreshed them. Therefore,
 I'd advice you to use the configuration above with short TTLs for the
 distributed storage, or things might get too stale. I mostly think it's useful
-if you're consuming data sources that don't handle bursts from new containers
-very well.
+if you're consuming data sources that are rate limited or don't handle brief
+bursts from new containers very well.
 
 I've included an example to showcase this functionality
 [here.](https://github.com/viccon/sturdyc/tree/main/examples/distribution)
@@ -1582,7 +1587,7 @@ cacheClient := sturdyc.New[string](capacity, numShards, ttl, evictionPercentage,
 ```
 
 With a configuration like this, I would usually set the TTL for the distributed
-storage to something like an hour. However, if the `sturdyc` queries the
+storage to something like an hour. However, if `sturdyc` queries the
 distributed storage and finds that a record is older than 1 minute (the second
 argument to the function), it will refresh the record from the underlying data
 source, and then write the updated value back to it. So the interaction with
