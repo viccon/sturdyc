@@ -10,15 +10,18 @@
 [![Test](https://github.com/viccon/sturdyc/actions/workflows/main.yml/badge.svg)](https://github.com/viccon/sturdyc/actions/workflows/main.yml)
 [![codecov](https://codecov.io/gh/viccon/sturdyc/graph/badge.svg?token=CYSKW3Z7E6)](https://codecov.io/gh/viccon/sturdyc)
 
-`Sturdyc` is an in-memory cache that supports **non-blocking reads** and has a
-configurable number of shards that makes it possible to achieve writes
-**without any lock contention**. The
+
+`sturdyc` eliminates cache stampedes and can minimize data source load in
+high-throughput systems through features such as request coalescing and
+asynchronous refreshes. It combines the speed of in-memory caching with
+granular control over data freshness. At its core, `sturdyc` provides
+**non-blocking reads** and sharded writes for minimal lock contention. The
 [xxhash](https://github.com/cespare/xxhash) algorithm is used for efficient key
 distribution.
 
 It has all the functionality you would expect from a caching library, but what
-**sets it apart** are the features designed to make I/O heavy applications both
-_robust_ and _highly performant_.
+**sets it apart** are the flexible configurations that have been designed to
+make I/O heavy applications both _robust_ and _highly performant_.
 
 We have been using this package in production to enhance both the performance
 and reliability of our services that retrieve data from distributed caches,
@@ -33,10 +36,10 @@ adding this package in front of a distributed key-value store:
 <img width="1554" alt="Screenshot 2024-05-10 at 10 15 18" src="https://github.com/viccon/sturdyc/assets/12787673/adad1d4c-e966-4db1-969a-eda4fd75653a">
 &nbsp;
 
-In addition to this, we were able to reduce our outgoing requests by more than
-90% after utilizing both the in-flight tracking of cache keys and refresh
-coalescing functionality, which in turn has allowed us to use fewer containers
-and much cheaper clusters.
+And through a combination of inflight-tracking, asynchronous refreshes, and
+refresh coalescing, we reduced load on underlying data sources by more than
+90%. This reduction in outgoing requests has enabled us to operate with fewer
+containers and significantly cheaper database clusters.
 
 # Table of contents
 
@@ -135,11 +138,11 @@ Next, we'll start to look at some of the more _advanced features_.
 
 # Get or fetch
 
-I have designed the API in a way that should make the process of integrating
-`sturdyc` with any data source as straightforward as possible. While it
-provides the basic get/set methods you would expect from a cache, the advanced
-functionality is accessed through just two core functions: `GetOrFetch` and
-`GetOrFetchBatch`
+I have tried to design the API in a way that should make the process of
+integrating `sturdyc` with any data source as straightforward as possible.
+While it provides the basic get/set methods you would expect from a cache, the
+advanced functionality is accessed through just two core functions:
+`GetOrFetch` and `GetOrFetchBatch`
 
 As an example, let's say that we had the following code for fetching orders
 from an API:
@@ -270,14 +273,13 @@ usernames) as keys, and the actual data that we want to cache (the gist) as the
 value.
 
 Later, we'll see how we can use closures to pass query parameters and options
-to our fetch functions, as well as how to use the PermutatedBatchKeyFn to
+to our fetch functions, as well as how to use the `PermutatedBatchKeyFn` to
 create unique cache keys for each permutation of them.
 
 # Stampede protection
 
-When we're consuming data through `sturdyc` we'll get automatic protection
-against cache stampedes. If you're not familiar with the term, a cache stampade
-(also known as thundering herd) occurs when many requests for a particular
+`sturdyc` provides automatic protection against cache stampedes (also known as
+thundering herd) - a situation that occurs when many requests for a particular
 piece of data, which has just expired or been evicted from the cache, come in
 at once.
 
@@ -360,7 +362,7 @@ fetchFn := func(_ context.Context, ids []string) (map[string]int, error) {
 ```
 
 Next, we'll need some batches to test with, so here I've created three batches
-with 5 IDs each:
+with five IDs each:
 
 ```go
 batches := [][]string{
@@ -421,7 +423,8 @@ log.Printf("fetchFn was called %d times\n", count.Load())
 
 Running this program, and looking at the logs, we'll see that the cache is able
 resolve all of the ids from these new goroutines without generating any
-additional requests even though we're picking IDs from different batches:
+additional requests even though we're picking IDs from different in-flight
+batches:
 
 ```sh
 ❯ go run .
@@ -471,13 +474,14 @@ deleted once their TTL expires. This also means that the request that gets
 chosen to refresh the value won’t retrieve the updated data right away as the
 refresh happens asynchronously.
 
-However, asynchronous refreshes can be problematic. What if some keys only get
-requested very infrequently? If the refreshes are done in the background the
-latency will be low, but the data itself might be stale.
+Asynchronous refreshes present challenges with infrequently requested keys.
+When the refreshes are done in the background the latency will be low, but the
+data might feel flaky or stale if we're not asking for the key again soon after
+it has been refreshed.
 
 To solve this, you also get to provide a synchronous refresh time. This
 essentially tells the cache: "If the data is older than x, I want the refresh
-to be blocking and wait for the response."
+to be blocking and have the user wait for the response."
 
 Below is an example configuration that you can use to enable this
 functionality:
@@ -509,8 +513,7 @@ func main() {
 }
 ```
 
-And to get a better feeling for how this works, we'll use the configuration
-above, and then we'll create a simple API client which embedds the cache:
+Let's build a simple API client that embeds the cache using our configuration:
 
 ```go
 type API struct {
@@ -558,8 +561,8 @@ func main() {
 }
 ```
 
-Running this program, we're going to see that the value gets refreshed once
-every 2-3 retrievals:
+Running this program, we're going to see that the value gets refreshed
+asynchronously once every 2-3 retrievals:
 
 ```sh
 cd examples/refreshes
@@ -587,11 +590,11 @@ either, given that we set the synchronous refresh delay like this:
 	synchronousRefreshDelay := time.Second * 30
 ```
 
-If a key isn't requested again within 30 seconds, the cache will make the
-refresh synchronous. Even if a minute has passed and 1,000 requests suddenly
-come in for this key, the stampede protection will kick in and make the refresh
-synchronous for all of them, while also ensuring that only a single request is
-made to the underlying data source.
+Which means that if a key isn't requested again within 30 seconds, the cache
+will make the refresh synchronous. Even if a minute has passed and 1,000
+requests suddenly come in for this key, the stampede protection will kick in
+and make the refresh synchronous for all of them, while also ensuring that only
+a single request is made to the underlying data source.
 
 Sometimes I like to use this feature to provide a degraded experience when an
 upstream system encounters issues. For this, I choose a high TTL and a low
@@ -693,8 +696,8 @@ still being printed:
 2024/05/09 13:22:04 Fetching value for key: key
 ```
 
-This is a bit tricky because how you determine if a record has been deleted is
-going to vary based on your data source. It could be a status code, zero value,
+This is a bit tricky because how you determine if a record has been deleted
+could vary based on your data source. It could be a status code, zero value,
 empty list, specific error message, etc. There is no easy way for the cache to
 figure this out implicitly.
 
@@ -750,8 +753,8 @@ just a single ID wasn't found:
 		for _, id := range cacheMisses {
 			// NOTE: Don't do this, it's just an example.
 			if response[id]; !id {
-                return response, sturdyc.ErrNotFound
-            }
+				return response, sturdyc.ErrNotFound
+			}
 		}
 		return response, nil
 	}
@@ -883,12 +886,11 @@ The entire example is available [here.](https://github.com/viccon/sturdyc/tree/m
 # Batch endpoints
 
 One challenge with caching batchable endpoints is that you have to find a way
-to reduce the number of cache keys. To illustrate, let's say that we have 10 000
-records, and an endpoint for fetching them that allows for batches of 20.
-The IDs for the batch are supplied as query parameters, for example,
-`https://example.com?ids=1,2,3,4,5,...20`. If we were to use this as the cache
-key, the way many CDNs would do, we could quickly calculate the number of keys
-we would generate like this:
+to reduce the number of cache keys. Consider an endpoint that allows fetching
+10,000 records in batches of 20. The IDs for the batch are supplied as query
+parameters, for example, `https://example.com?ids=1,2,3,4,5,...20`. If we were
+to use this as the cache key, the way many CDNs would do, we could quickly
+calculate the number of keys we would generate like this:
 
 $$ C(n, k) = \binom{n}{k} = \frac{n!}{k!(n-k)!} $$
 
@@ -1038,8 +1040,8 @@ What if you're fetching data from some endpoint that accepts a variety of query
 parameters? Or perhaps you're doing a database query and want to apply some
 ordering and filtering to the data?
 
-We can easily get around this by using closures. Let's illustrate this by
-looking at an actual API client I've written:
+Closures provide an elegant solution to this limitation. Let's illustrate this
+by looking at an actual API client I've written:
 
 ```go
 const moviesByIDsCacheKeyPrefix = "movies-by-ids"
@@ -1245,8 +1247,8 @@ As you may recall, our client is using the `WithEarlyRefreshes` option to
 refresh the records in the background whenever their keys are requested again
 after a certain amount of time has passed. And as seen in the example above,
 we're successfully storing the records once for every permutation of the
-options we use to retrieve it. However, we're not really utilizing the fact
-that the endpoint is batchable when we're performing the refreshes.
+options we use to retrieve it. However, we're not taking advantage of the
+endpoint's batch capabilities.
 
 To make this more efficient, we can enable the **refresh coalescing**
 functionality, but before we'll update our example to use it let's just take a
@@ -1327,8 +1329,7 @@ So now we're saying that we want to coalesce the refreshes for each
 permutation, and try to process them in batches of 3. However, if it's not able
 to reach that size within 30 seconds we want the refresh to happen anyway.
 
-And if you recall the output from our last run of this example code where the
-refreshes happened one by one:
+The previous output revealed that the refreshes happened one by one:
 
 ```sh
 go run .
