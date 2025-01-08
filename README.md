@@ -1382,21 +1382,21 @@ Another point to note is how effectively the options we've seen so far can be
 combined to create high-performing, flexible, and robust caching solutions:
 
 ```go
-    capacity := 10000
-	numShards := 10
-	ttl := 2 * time.Hour
-	evictionPercentage := 10
-	minRefreshDelay := time.Second
-	maxRefreshDelay := time.Second * 2
-	synchronousRefreshDelay := time.Second * 120 // 2 minutes.
-	retryBaseDelay := time.Millisecond * 10
-	batchSize := 10
-	batchBufferTimeout := time.Second * 15
+capacity := 10000
+numShards := 10
+ttl := 2 * time.Hour
+evictionPercentage := 10
+minRefreshDelay := time.Second
+maxRefreshDelay := time.Second * 2
+synchronousRefreshDelay := time.Second * 120 // 2 minutes.
+retryBaseDelay := time.Millisecond * 10
+batchSize := 10
+batchBufferTimeout := time.Second * 15
 
-	cacheClient := sturdyc.New[string](capacity, numShards, ttl, evictionPercentage,
-		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, synchronousRefreshDelay, retryBaseDelay),
-		sturdyc.WithRefreshCoalescing(batchSize, batchBufferTimeout),
-	)
+cacheClient := sturdyc.New[string](capacity, numShards, ttl, evictionPercentage,
+	sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, synchronousRefreshDelay, retryBaseDelay),
+	sturdyc.WithRefreshCoalescing(batchSize, batchBufferTimeout),
+)
 ```
 
 With the configuration above, the keys in active rotation are going to be
