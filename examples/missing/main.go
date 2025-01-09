@@ -51,12 +51,14 @@ func main() {
 	// used to spread out the refreshes for entries evenly over time.
 	minRefreshDelay := time.Millisecond * 10
 	maxRefreshDelay := time.Millisecond * 30
+	// Set a synchronous refresh delay for when we want a refresh to happen synchronously.
+	synchronousRefreshDelay := time.Second * 30
 	// The base for exponential backoff when retrying a refresh.
 	retryBaseDelay := time.Millisecond * 10
 
 	// Create a cache client with the specified configuration.
 	cacheClient := sturdyc.New[string](capacity, numShards, ttl, evictionPercentage,
-		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, retryBaseDelay),
+		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, synchronousRefreshDelay, retryBaseDelay),
 		sturdyc.WithMissingRecordStorage(),
 	)
 

@@ -23,7 +23,7 @@ func NewOrderAPI(client *sturdyc.Client[string]) *OrderAPI {
 }
 
 func (a *OrderAPI) OrderStatus(ctx context.Context, ids []string, opts OrderOptions) (map[string]string, error) {
-	// We use the  PermutedBatchKeyFn when an ID isn't enough to uniquely identify a
+	// We use the PermutedBatchKeyFn when an ID isn't enough to uniquely identify a
 	// record. The cache is going to store each id once per set of options. In a more
 	// realistic scenario, the opts would be query params or arguments to a DB query.
 	cacheKeyFn := a.PermutatedBatchKeyFn("key", opts)
@@ -56,6 +56,8 @@ func main() {
 	// used to spread out the refreshes for entries evenly over time.
 	minRefreshDelay := time.Second
 	maxRefreshDelay := time.Second * 2
+	// Set a synchronous refresh delay for when we want a refresh to happen synchronously.
+	synchronousRefreshDelay := time.Second * 30
 	// The base for exponential backoff when retrying a refresh.
 	retryBaseDelay := time.Millisecond * 10
 	// Whether to store misses in the sturdyc. This can be useful to
@@ -68,7 +70,7 @@ func main() {
 
 	// Create a new cache client with the specified configuration.
 	cacheClient := sturdyc.New[string](capacity, numShards, ttl, evictionPercentage,
-		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, retryBaseDelay),
+		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, synchronousRefreshDelay, retryBaseDelay),
 		sturdyc.WithRefreshCoalescing(batchSize, batchBufferTimeout),
 	)
 

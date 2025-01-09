@@ -156,7 +156,7 @@ func TestDistributedStorage(t *testing.T) {
 	fetchObserver.AssertFetchCount(t, 1)
 	fetchObserver.Clear()
 
-	// The keys are written asynchonously to the distributed storage.
+	// The keys are written asynchronously to the distributed storage.
 	time.Sleep(100 * time.Millisecond)
 	distributedStorage.assertRecord(t, key)
 	distributedStorage.assertGetCount(t, 1)
@@ -177,7 +177,7 @@ func TestDistributedStorage(t *testing.T) {
 		t.Errorf("expected valuekey1, got %s", res)
 	}
 
-	// The keys are written asynchonously to the distributed storage.
+	// The keys are written asynchronously to the distributed storage.
 	time.Sleep(100 * time.Millisecond)
 	fetchObserver.AssertFetchCount(t, 1)
 	distributedStorage.assertGetCount(t, 2)
@@ -411,7 +411,7 @@ func TestDistributedStorageBatch(t *testing.T) {
 	fetchObserver.AssertFetchCount(t, 1)
 	fetchObserver.Clear()
 
-	// The keys are written asynchonously to the distributed storage.
+	// The keys are written asynchronously to the distributed storage.
 	time.Sleep(100 * time.Millisecond)
 	distributedStorage.assertRecords(t, firstBatchOfIDs, keyFn)
 	distributedStorage.assertGetCount(t, 1)
@@ -444,7 +444,7 @@ func TestDistributedStorageBatch(t *testing.T) {
 	fetchObserver.AssertRequestedRecords(t, []string{"4", "5", "6"})
 	fetchObserver.AssertFetchCount(t, 2)
 
-	// The keys are written asynchonously to the distributed storage.
+	// The keys are written asynchronously to the distributed storage.
 	time.Sleep(100 * time.Millisecond)
 	distributedStorage.assertRecords(t, secondBatchOfIDs, keyFn)
 	distributedStorage.assertGetCount(t, 2)
@@ -480,7 +480,7 @@ func TestDistributedStaleStorageBatch(t *testing.T) {
 	fetchObserver.AssertFetchCount(t, 1)
 	fetchObserver.Clear()
 
-	// The keys are written asynchonously to the distributed storage.
+	// The keys are written asynchronously to the distributed storage.
 	time.Sleep(100 * time.Millisecond)
 	distributedStorage.assertRecords(t, firstBatchOfIDs, keyFn)
 	distributedStorage.assertGetCount(t, 1)
@@ -546,7 +546,7 @@ func TestDistributedStorageBatchDeletes(t *testing.T) {
 	fetchObserver.AssertFetchCount(t, 1)
 	fetchObserver.Clear()
 
-	// The keys are written asynchonously to the distributed storage.
+	// The keys are written asynchronously to the distributed storage.
 	time.Sleep(100 * time.Millisecond)
 	distributedStorage.assertRecords(t, batchOfIDs, keyFn)
 	distributedStorage.assertGetCount(t, 1)
@@ -578,7 +578,7 @@ func TestDistributedStorageBatchDeletes(t *testing.T) {
 	fetchObserver.AssertRequestedRecords(t, batchOfIDs)
 	fetchObserver.AssertFetchCount(t, 2)
 
-	// The keys are written asynchonously to the distributed storage.
+	// The keys are written asynchronously to the distributed storage.
 	time.Sleep(100 * time.Millisecond)
 	distributedStorage.assertRecords(t, []string{"1", "2"}, keyFn)
 	distributedStorage.assertGetCount(t, 2)
@@ -615,7 +615,7 @@ func TestDistributedStorageBatchConvertsToMissingRecord(t *testing.T) {
 	fetchObserver.AssertFetchCount(t, 1)
 	fetchObserver.Clear()
 
-	// The keys are written asynchonously to the distributed storage.
+	// The keys are written asynchronously to the distributed storage.
 	time.Sleep(100 * time.Millisecond)
 	distributedStorage.assertRecords(t, batchOfIDs, keyFn)
 	distributedStorage.assertGetCount(t, 1)
@@ -648,7 +648,7 @@ func TestDistributedStorageBatchConvertsToMissingRecord(t *testing.T) {
 	fetchObserver.AssertFetchCount(t, 2)
 	fetchObserver.Clear()
 
-	// The keys are written asynchonously to the distributed storage.
+	// The keys are written asynchronously to the distributed storage.
 	time.Sleep(100 * time.Millisecond)
 	distributedStorage.assertRecords(t, []string{"1", "2"}, keyFn)
 	distributedStorage.assertGetCount(t, 2)
@@ -675,7 +675,8 @@ func TestDistributedStorageBatchConvertsToMissingRecord(t *testing.T) {
 	fetchObserver.AssertRequestedRecords(t, batchOfIDs)
 	fetchObserver.AssertFetchCount(t, 3)
 
-	// The keys are written asynchonously to the distributed storage.
+	// The keys are written asynchronously to the distributed storage.
+	time.Sleep(100 * time.Millisecond)
 	time.Sleep(100 * time.Millisecond)
 	distributedStorage.assertRecords(t, batchOfIDs, keyFn)
 	distributedStorage.assertGetCount(t, 3)
@@ -727,7 +728,7 @@ func TestDistributedStorageDoesNotCachePartialResponseAsMissingRecords(t *testin
 	fetchObserver.AssertFetchCount(t, 1)
 	fetchObserver.Clear()
 
-	// The keys are written asynchonously to the distributed storage.
+	// The keys are written asynchronously to the distributed storage.
 	time.Sleep(100 * time.Millisecond)
 	distributedStorage.assertRecords(t, batchOfIDs, keyFn)
 	distributedStorage.assertGetCount(t, 1)
@@ -779,6 +780,7 @@ func TestPartialResponseForRefreshesDoesNotResultInMissingRecords(t *testing.T) 
 	ttl := time.Hour
 	minRefreshDelay := time.Minute * 5
 	maxRefreshDelay := time.Minute * 10
+	synchronousRefreshDelay := time.Minute * 30
 	refreshRetryInterval := time.Millisecond * 10
 	batchSize := 10
 	batchBufferTimeout := time.Minute
@@ -788,7 +790,7 @@ func TestPartialResponseForRefreshesDoesNotResultInMissingRecords(t *testing.T) 
 
 	c := sturdyc.New[string](capacity, numShards, ttl, evictionPercentage,
 		sturdyc.WithNoContinuousEvictions(),
-		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, refreshRetryInterval),
+		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, synchronousRefreshDelay, refreshRetryInterval),
 		sturdyc.WithMissingRecordStorage(),
 		sturdyc.WithRefreshCoalescing(batchSize, batchBufferTimeout),
 		sturdyc.WithDistributedStorageEarlyRefreshes(distributedStorage, refreshAfter),
@@ -816,7 +818,7 @@ func TestPartialResponseForRefreshesDoesNotResultInMissingRecords(t *testing.T) 
 	fetchObserver.AssertRequestedRecords(t, ids)
 	fetchObserver.Clear()
 
-	// We need to add a sleep because the keys are written asynchonously to the
+	// We need to add a sleep because the keys are written asynchronously to the
 	// distributed storage. We expect that the distributed storage was queried
 	// for the ids before we went to the underlying data source, and then written
 	// to when it resulted in a cache miss and the data was in fact fetched.

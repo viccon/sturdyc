@@ -20,6 +20,7 @@ func TestBatchIsRefreshedWhenTheTimeoutExpires(t *testing.T) {
 	evictionPercentage := 10
 	minRefreshDelay := time.Minute * 5
 	maxRefreshDelay := time.Minute * 10
+	synchronousRefreshDelay := time.Minute * 30
 	refreshRetryInterval := time.Millisecond * 10
 	batchSize := 10
 	batchBufferTimeout := time.Minute
@@ -34,7 +35,7 @@ func TestBatchIsRefreshedWhenTheTimeoutExpires(t *testing.T) {
 	//    2. The 'batchBufferTimeout' threshold is exceeded.
 	client := sturdyc.New[string](capacity, numShards, ttl, evictionPercentage,
 		sturdyc.WithNoContinuousEvictions(),
-		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, refreshRetryInterval),
+		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, synchronousRefreshDelay, refreshRetryInterval),
 		sturdyc.WithMissingRecordStorage(),
 		sturdyc.WithRefreshCoalescing(batchSize, batchBufferTimeout),
 		sturdyc.WithClock(clock),
@@ -86,6 +87,7 @@ func TestBatchIsRefreshedWhenTheBufferSizeIsReached(t *testing.T) {
 	ttl := time.Hour
 	minRefreshDelay := time.Minute * 5
 	maxRefreshDelay := time.Minute * 10
+	synchronousRefreshDelay := time.Minute * 30
 	refreshRetryInterval := time.Millisecond * 10
 	batchSize := 10
 	batchBufferTimeout := time.Minute
@@ -100,7 +102,7 @@ func TestBatchIsRefreshedWhenTheBufferSizeIsReached(t *testing.T) {
 	//    2. The 'batchBufferTimeout' threshold is exceeded.
 	client := sturdyc.New[string](capacity, numShards, ttl, evictionPercentage,
 		sturdyc.WithNoContinuousEvictions(),
-		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, refreshRetryInterval),
+		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, synchronousRefreshDelay, refreshRetryInterval),
 		sturdyc.WithMissingRecordStorage(),
 		sturdyc.WithRefreshCoalescing(batchSize, batchBufferTimeout),
 		sturdyc.WithClock(clock),
@@ -180,6 +182,7 @@ func TestBatchIsNotRefreshedByDuplicates(t *testing.T) {
 	evictionPercentage := 10
 	minRefreshDelay := time.Minute * 5
 	maxRefreshDelay := time.Minute * 10
+	synchronousRefreshDelay := time.Minute * 30
 	refreshRetryInterval := time.Millisecond * 10
 	batchSize := 10
 	batchBufferTimeout := time.Minute
@@ -194,7 +197,7 @@ func TestBatchIsNotRefreshedByDuplicates(t *testing.T) {
 	//    2. The 'batchBufferTimeout' threshold is exceeded.
 	client := sturdyc.New[string](capacity, numShards, ttl, evictionPercentage,
 		sturdyc.WithNoContinuousEvictions(),
-		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, refreshRetryInterval),
+		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, synchronousRefreshDelay, refreshRetryInterval),
 		sturdyc.WithMissingRecordStorage(),
 		sturdyc.WithRefreshCoalescing(batchSize, batchBufferTimeout),
 		sturdyc.WithClock(clock),
@@ -250,6 +253,7 @@ func TestBatchesAreGroupedByPermutations(t *testing.T) {
 	evictionPercentage := 15
 	minRefreshDelay := time.Minute * 5
 	maxRefreshDelay := time.Minute * 10
+	synchronousRefreshDelay := time.Minute * 30
 	refreshRetryInterval := time.Millisecond * 10
 	batchSize := 5
 	batchBufferTimeout := time.Minute
@@ -264,7 +268,7 @@ func TestBatchesAreGroupedByPermutations(t *testing.T) {
 	//    2. The 'batchBufferTimeout' threshold is exceeded.
 	c := sturdyc.New[any](capacity, numShards, ttl, evictionPercentage,
 		sturdyc.WithNoContinuousEvictions(),
-		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, refreshRetryInterval),
+		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, synchronousRefreshDelay, refreshRetryInterval),
 		sturdyc.WithMissingRecordStorage(),
 		sturdyc.WithRefreshCoalescing(batchSize, batchBufferTimeout),
 		sturdyc.WithClock(clock),
@@ -339,6 +343,7 @@ func TestLargeBatchesAreChunkedCorrectly(t *testing.T) {
 	evictionPercentage := 23
 	minRefreshDelay := time.Minute * 5
 	maxRefreshDelay := time.Minute * 10
+	synchronousRefreshDelay := time.Minute * 30
 	refreshRetryInterval := time.Millisecond * 10
 	batchSize := 5
 	batchBufferTimeout := time.Minute
@@ -353,7 +358,7 @@ func TestLargeBatchesAreChunkedCorrectly(t *testing.T) {
 	//    2. The 'batchBufferTimeout' threshold is exceeded.
 	client := sturdyc.New[string](capacity, numShards, ttl, evictionPercentage,
 		sturdyc.WithNoContinuousEvictions(),
-		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, refreshRetryInterval),
+		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, synchronousRefreshDelay, refreshRetryInterval),
 		sturdyc.WithMissingRecordStorage(),
 		sturdyc.WithRefreshCoalescing(batchSize, batchBufferTimeout),
 		sturdyc.WithClock(clock),
@@ -401,6 +406,7 @@ func TestValuesAreUpdatedCorrectly(t *testing.T) {
 	evictionPercentage := 10
 	minRefreshDelay := time.Minute * 5
 	maxRefreshDelay := time.Minute * 10
+	synchronousRefreshDelay := time.Minute * 50
 	refreshRetryInterval := time.Millisecond * 10
 	batchSize := 10
 	batchBufferTimeout := time.Minute
@@ -415,7 +421,7 @@ func TestValuesAreUpdatedCorrectly(t *testing.T) {
 	//    2. The 'batchBufferTimeout' threshold is exceeded.
 	client := sturdyc.New[any](capacity, numShards, ttl, evictionPercentage,
 		sturdyc.WithNoContinuousEvictions(),
-		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, refreshRetryInterval),
+		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, synchronousRefreshDelay, refreshRetryInterval),
 		sturdyc.WithMissingRecordStorage(),
 		sturdyc.WithRefreshCoalescing(batchSize, batchBufferTimeout),
 		sturdyc.WithClock(clock),
