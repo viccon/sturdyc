@@ -476,13 +476,21 @@ chosen to refresh the value won’t retrieve the updated data right away as the
 refresh happens asynchronously.
 
 However, asynchronous refreshes present challenges with infrequently requested
-keys. When the refreshes are done in the background the latency will be low,
-but the data might feel flaky or stale if we're not asking for the key again
-soon after so that it is being continuously refreshed.
+keys. While background refreshes keep latency low by serving cached values
+during updates, this can lead to perpetually stale data. If a key isn't
+requested again before its next scheduled refresh, we remain permanently one
+update behind, as each read triggers a refresh that won't be seen until the
+next request. This is similar to a burger restaurant that prepares a new burger
+after each customer's order - if the next customer arrives too late, they'll
+receive a cold burger, despite the restaurant's proactive cooking strategy.
 
 To solve this, you also get to provide a synchronous refresh time. This
 essentially tells the cache: "If the data is older than x, I want the refresh
-to be blocking and have the user wait for the response."
+to be blocking and have the user wait for the response." Or using the burger
+analogy: if a burger has been sitting for more than X minutes, the restaurant
+starts making a fresh one while the customer waits. Unlike a real restaurant
+though, the cache keeps the old value as a fallback - if the refresh fails,
+we'll still serve the "cold burger" rather than letting the customer go hungry.
 
 Below is an example configuration that you can use to enable this
 functionality:
