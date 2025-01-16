@@ -174,6 +174,86 @@ func TestForcedEvictions(t *testing.T) {
 	}
 }
 
+func TestForceEvictAllEntries(t *testing.T) {
+	t.Parallel()
+	capacity := 100
+	numShards := 1
+	ttl := time.Hour
+	evictionpercentage := 100
+	clock := sturdyc.NewTestClock(time.Now())
+	c := sturdyc.New[string](capacity, numShards, ttl, evictionpercentage,
+		sturdyc.WithClock(clock),
+	)
+
+	// Now we're going to write 101 records to the cache which should
+	// exceed its capacity and trigger a forced eviction.
+	for i := 0; i < 101; i++ {
+		c.Set(strconv.Itoa(i), strconv.Itoa(i))
+	}
+
+	// When the eviction is triggered by the 100th write, we expect the cache to
+	// be emptied. Therefore, the 101th write should mean that the size is now 1.
+	if c.Size() != 1 {
+		t.Errorf("expected cache size to be 0, got %d", c.Size())
+	}
+}
+
+func TestForceEvictionSameTime(t *testing.T) {
+	t.Parallel()
+	capacity := 100
+	numShards := 2
+	ttl := time.Hour
+	evictionpercentage := 50
+	clock := sturdyc.NewTestClock(time.Now())
+	c := sturdyc.New[string](capacity, numShards, ttl, evictionpercentage,
+		sturdyc.WithClock(clock),
+	)
+
+	// Now we're going to write 1000 records to the cache which should
+	// exceed its capacity and trigger a couple of forced evictions.
+	for i := 0; i < 1000; i++ {
+		c.Set(strconv.Itoa(i), strconv.Itoa(i))
+	}
+
+	// Assert that even though we're writing 1000
+	// records we never exceed the capacity of 100.
+	if c.Size() > 100 {
+		t.Errorf("exceeded the cache size of 100, got %d", c.Size())
+	}
+}
+
+func TestForceEvictionTwoDifferentTimes(t *testing.T) {
+	t.Parallel()
+	capacity := 100
+	numShards := 1
+	ttl := time.Hour
+	evictionpercentage := 10
+	clock := sturdyc.NewTestClock(time.Now())
+	c := sturdyc.New[string](capacity, numShards, ttl, evictionpercentage,
+		sturdyc.WithClock(clock),
+	)
+
+	// We're going to write 50 records, then move the clock forward
+	// and write another 50 to reach the capacity of the cache.
+	for i := 0; i < 50; i++ {
+		c.Set(strconv.Itoa(i), strconv.Itoa(i))
+	}
+	clock.Add(time.Hour)
+	for i := 0; i < 50; i++ {
+		c.Set(strconv.Itoa(i+50), strconv.Itoa(i+50))
+	}
+
+	// At this point, the cache should be at its capacity so
+	// adding another item should trigger a forced eviction.
+	// Given our eviction percentage of 10%, we expect the
+	// cache to first remove 10 items, and then write this
+	// record afterwards.
+	c.Set(strconv.Itoa(100), strconv.Itoa(100))
+	if c.Size() != 91 {
+		t.Errorf("expected cache size to be 91, got %d", c.Size())
+	}
+}
+
 func TestDisablingForcedEvictionMakesSetANoop(t *testing.T) {
 	t.Parallel()
 

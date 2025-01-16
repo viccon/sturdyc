@@ -62,6 +62,55 @@ func TestCutoff(t *testing.T) {
 	}
 }
 
+func TestCutOffSameTime(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	timestamps := make([]time.Time, 0, 100)
+	for i := 0; i < 100; i++ {
+		timestamps = append(timestamps, now)
+	}
+
+	// Given that we have a list where all the timestamps are the same, we
+	// should get that same timestamp back for every percentile.
+	cutoffOne := sturdyc.FindCutoff(timestamps, 0.1)
+	cutoffTwo := sturdyc.FindCutoff(timestamps, 0.3)
+	cutoffThree := sturdyc.FindCutoff(timestamps, 0.5)
+	if cutoffOne != now {
+		t.Errorf("expected cutoff to be %v, got %v", now, cutoffOne)
+	}
+	if cutoffTwo != now {
+		t.Errorf("expected cutoff to be %v, got %v", now, cutoffTwo)
+	}
+	if cutoffThree != now {
+		t.Errorf("expected cutoff to be %v, got %v", now, cutoffThree)
+	}
+}
+
+func TestCutOffTwoTimes(t *testing.T) {
+	t.Parallel()
+	timestamps := make([]time.Time, 0, 100)
+
+	firstTime := time.Now()
+	for i := 0; i < 50; i++ {
+		timestamps = append(timestamps, firstTime)
+	}
+
+	secondTime := time.Now().Add(time.Second)
+	for i := 0; i < 50; i++ {
+		timestamps = append(timestamps, secondTime)
+	}
+
+	firstCutoff := sturdyc.FindCutoff(timestamps, 0.49)
+	if firstCutoff != firstTime {
+		t.Errorf("expected cutoff to be %v, got %v", firstTime, firstCutoff)
+	}
+
+	secondCutoff := sturdyc.FindCutoff(timestamps, 0.51)
+	if secondCutoff != secondTime {
+		t.Errorf("expected cutoff to be %v, got %v", secondTime, secondCutoff)
+	}
+}
+
 func TestReturnsEmptyTimeIfArgumentsAreInvalid(t *testing.T) {
 	t.Parallel()
 
