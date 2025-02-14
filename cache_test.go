@@ -181,20 +181,40 @@ func TestForceEvictAllEntries(t *testing.T) {
 	ttl := time.Hour
 	evictionpercentage := 100
 	clock := sturdyc.NewTestClock(time.Now())
+	metricRecorder := newTestMetricsRecorder(numShards)
 	c := sturdyc.New[string](capacity, numShards, ttl, evictionpercentage,
 		sturdyc.WithClock(clock),
+		sturdyc.WithMetrics(metricRecorder),
 	)
 
-	// Now we're going to write 101 records to the cache which should
-	// exceed its capacity and trigger a forced eviction.
-	for i := 0; i < 101; i++ {
+	// Fill the cache to capacity
+	for i := 0; i < capacity; i++ {
 		c.Set(strconv.Itoa(i), strconv.Itoa(i))
 	}
 
+	// Record metrics before eviction
+	preEvictionCount := metricRecorder.evictedEntries
+
+	// Trigger eviction by adding one more entry
 	// When the eviction is triggered by the 100th write, we expect the cache to
 	// be emptied. Therefore, the 101th write should mean that the size is now 1.
+	c.Set("trigger", "value")
+
+	// When the eviction is triggered, we expect the cache to be emptied
+	// and only contain the trigger value
 	if c.Size() != 1 {
-		t.Errorf("expected cache size to be 0, got %d", c.Size())
+		t.Errorf("expected cache size to be 1, got %d", c.Size())
+	}
+
+	// Verify eviction metrics
+	metricRecorder.Lock()
+	defer metricRecorder.Unlock()
+	evictedEntries := metricRecorder.evictedEntries - preEvictionCount
+	if evictedEntries != capacity {
+		t.Errorf("got %d evicted entries, want %d", evictedEntries, capacity)
+	}
+	if metricRecorder.forcedEvictions != 1 {
+		t.Errorf("got %d forced eviction events, want 1", metricRecorder.forcedEvictions)
 	}
 }
 
