@@ -411,7 +411,7 @@ var wg sync.WaitGroup
 for i := 0; i < 5; i++ {
 	wg.Add(1)
 	go func() {
-		ids := []string{batches[rand.IntN(2)][rand.IntN(4)], batches[rand.IntN(2)][rand.IntN(4)]}
+		ids := []string{batches[rand.IntN(3)][rand.IntN(5)], batches[rand.IntN(3)][rand.IntN(5)]}
 		res, _ := cacheClient.GetOrFetchBatch(context.Background(), ids, keyPrefixFn, fetchFn)
 		log.Printf("got batch: %v\n", res)
 		wg.Done()
