@@ -123,6 +123,10 @@ func (c *Client[T]) GetOrFetch(ctx context.Context, key string, fetchFn FetchFn[
 //	T - The type stored in the cache.
 func GetOrFetch[V, T any](ctx context.Context, c *Client[T], key string, fetchFn FetchFn[V]) (V, error) {
 	res, err := getFetch[V, T](ctx, c, key, fetchFn)
+	if err != nil {
+		var zero V
+		return zero, err
+	}
 	return unwrap[V](res, err)
 }
 
