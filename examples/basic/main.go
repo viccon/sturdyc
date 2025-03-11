@@ -12,6 +12,11 @@ import (
 	"github.com/viccon/sturdyc"
 )
 
+func pickRandomValue(batches [][]string) string {
+	batch := batches[rand.IntN(len(batches))]
+	return batch[rand.IntN(len(batch))]
+}
+
 func demonstrateGetOrFetch(cacheClient *sturdyc.Client[int]) {
 	// The cache has built-in stampede protection where it tracks in-flight
 	// requests for every key.
@@ -82,7 +87,7 @@ func demonstrateGetOrFetchBatch(cacheClient *sturdyc.Client[int]) {
 	for i := 0; i < 5; i++ {
 		wg.Add(1)
 		go func() {
-			ids := []string{batches[rand.IntN(2)][rand.IntN(4)], batches[rand.IntN(2)][rand.IntN(4)]}
+			ids := []string{pickRandomValue(batches), pickRandomValue(batches)}
 			res, _ := cacheClient.GetOrFetchBatch(context.Background(), ids, keyPrefixFn, fetchFn)
 			log.Printf("got batch: %v\n", res)
 			wg.Done()
