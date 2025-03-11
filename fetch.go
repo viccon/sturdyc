@@ -231,5 +231,9 @@ func (c *Client[T]) GetOrFetchBatch(ctx context.Context, ids []string, keyFn Key
 
 func GetOrFetchBatch[V, T any](ctx context.Context, c *Client[T], ids []string, keyFn KeyFn, fetchFn BatchFetchFn[V]) (map[string]V, error) {
 	res, err := getFetchBatch[V, T](ctx, c, ids, keyFn, fetchFn)
+	if err != nil {
+		var zero map[string]V
+		return zero, err
+	}
 	return unwrapBatch[V](res, err)
 }
