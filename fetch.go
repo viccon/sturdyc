@@ -176,11 +176,10 @@ func getFetchBatch[V, T any](ctx context.Context, c *Client[T], ids []string, ke
 
 	if err != nil && !errors.Is(err, ErrOnlyCachedRecords) {
 		if len(cachedRecords) > 0 {
+			maps.Copy(cachedRecords, response)
 			return cachedRecords, errors.Join(ErrOnlyCachedRecords, err)
 		}
-		return cachedRecords, err
 	}
-
 	maps.Copy(cachedRecords, response)
 	return cachedRecords, err
 }

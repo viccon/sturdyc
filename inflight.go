@@ -33,6 +33,15 @@ func makeCall[T, V any](ctx context.Context, c *Client[T], key string, fn FetchF
 	}()
 
 	response, err := fn(ctx)
+	valueAsT, valueIsAssignableToT := any(response).(T)
+	if valueIsAssignableToT {
+		call.val = valueAsT
+	}
+	if !valueIsAssignableToT {
+		call.err = ErrInvalidType
+		return
+	}
+
 	if c.storeMissingRecords && errors.Is(err, ErrNotFound) {
 		c.StoreMissingRecord(key)
 		call.err = ErrMissingRecord
@@ -44,15 +53,8 @@ func makeCall[T, V any](ctx context.Context, c *Client[T], key string, fn FetchF
 		return
 	}
 
-	res, ok := any(response).(T)
-	if !ok {
-		call.err = ErrInvalidType
-		return
-	}
-
 	call.err = nil
-	call.val = res
-	c.Set(key, res)
+	c.Set(key, valueAsT)
 }
 
 func callAndCache[V, T any](ctx context.Context, c *Client[T], key string, fn FetchFn[V]) (V, error) {
@@ -98,6 +100,12 @@ type makeBatchCallOpts[T, V any] struct {
 
 func makeBatchCall[T, V any](ctx context.Context, c *Client[T], opts makeBatchCallOpts[T, V]) {
 	response, err := opts.fn(ctx, opts.ids)
+	for id, record := range response {
+		if v, ok := any(record).(T); ok {
+			opts.call.val[id] = v
+		}
+	}
+
 	if err != nil && !errors.Is(err, errOnlyDistributedRecords) {
 		opts.call.err = err
 		return
@@ -122,13 +130,9 @@ func makeBatchCall[T, V any](ctx context.Context, c *Client[T], opts makeBatchCa
 
 	// Store the records in the cache.
 	for id, record := range response {
-		v, ok := any(record).(T)
-		if !ok {
-			c.log.Error("sturdyc: invalid type for ID:" + id)
-			continue
+		if v, ok := any(record).(T); ok {
+			c.Set(opts.keyFn(id), v)
 		}
-		c.Set(opts.keyFn(id), v)
-		opts.call.val[id] = v
 	}
 }
 
@@ -171,18 +175,9 @@ func callAndCacheBatch[V, T any](ctx context.Context, c *Client[T], opts callBat
 	response := make(map[string]V, len(opts.ids))
 	for call, callIDs := range callIDs {
 		call.Wait()
-		// It could be only cached records here, if we we're able
-		// to get some of the IDs from the distributed storage.
-		if call.err != nil && !errors.Is(call.err, ErrOnlyCachedRecords) {
-			return response, call.err
-		}
 
-		if errors.Is(call.err, ErrOnlyCachedRecords) {
-			err = ErrOnlyCachedRecords
-		}
-
-		// We need to iterate through the values that we want from this call. The
-		// batch could contain a hundred IDs, but we might only want a few of them.
+		// We need to iterate through the values that WE want from this call. The batch
+		// could contain hundrdreds of IDs, but we might only want a few of them.
 		for _, id := range callIDs {
 			v, ok := call.val[id]
 			if !ok {
@@ -194,6 +189,16 @@ func callAndCacheBatch[V, T any](ctx context.Context, c *Client[T], opts callBat
 				continue
 			}
 			return response, ErrInvalidType
+		}
+
+		// It could be only cached records here, if we we're able
+		// to get some of the IDs from the distributed storage.
+		if call.err != nil && !errors.Is(call.err, ErrOnlyCachedRecords) {
+			return response, call.err
+		}
+
+		if errors.Is(call.err, ErrOnlyCachedRecords) {
+			err = ErrOnlyCachedRecords
 		}
 	}
 

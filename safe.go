@@ -2,7 +2,6 @@ package sturdyc
 
 import (
 	"context"
-	"errors"
 	"fmt"
 )
 
@@ -23,6 +22,9 @@ func wrap[T, V any](fetchFn FetchFn[V]) FetchFn[T] {
 	return func(ctx context.Context) (T, error) {
 		res, err := fetchFn(ctx)
 		if err != nil {
+			if val, ok := any(res).(T); ok {
+				return val, err
+			}
 			var zero T
 			return zero, err
 		}
@@ -47,10 +49,6 @@ func unwrap[V, T any](val T, err error) (V, error) {
 func wrapBatch[T, V any](fetchFn BatchFetchFn[V]) BatchFetchFn[T] {
 	return func(ctx context.Context, ids []string) (map[string]T, error) {
 		resV, err := fetchFn(ctx, ids)
-		if err != nil && !errors.Is(err, errOnlyDistributedRecords) {
-			return map[string]T{}, err
-		}
-
 		resT := make(map[string]T, len(resV))
 		for id, v := range resV {
 			val, ok := any(v).(T)
@@ -59,7 +57,6 @@ func wrapBatch[T, V any](fetchFn BatchFetchFn[V]) BatchFetchFn[T] {
 			}
 			resT[id] = val
 		}
-
 		return resT, err
 	}
 }
