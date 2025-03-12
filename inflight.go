@@ -103,6 +103,9 @@ func makeBatchCall[T, V any](ctx context.Context, c *Client[T], opts makeBatchCa
 	for id, record := range response {
 		if v, ok := any(record).(T); ok {
 			opts.call.val[id] = v
+			if err == nil || errors.Is(err, errOnlyDistributedRecords) {
+				c.Set(opts.keyFn(id), v)
+			}
 		}
 	}
 
@@ -125,13 +128,6 @@ func makeBatchCall[T, V any](ctx context.Context, c *Client[T], opts makeBatchCa
 			if _, ok := response[id]; !ok {
 				c.StoreMissingRecord(opts.keyFn(id))
 			}
-		}
-	}
-
-	// Store the records in the cache.
-	for id, record := range response {
-		if v, ok := any(record).(T); ok {
-			c.Set(opts.keyFn(id), v)
 		}
 	}
 }
