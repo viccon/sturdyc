@@ -34,13 +34,11 @@ func makeCall[T, V any](ctx context.Context, c *Client[T], key string, fn FetchF
 
 	response, err := fn(ctx)
 	valueAsT, valueIsAssignableToT := any(response).(T)
-	if valueIsAssignableToT {
-		call.val = valueAsT
-	}
 	if !valueIsAssignableToT {
 		call.err = ErrInvalidType
 		return
 	}
+	call.val = valueAsT
 
 	if c.storeMissingRecords && errors.Is(err, ErrNotFound) {
 		c.StoreMissingRecord(key)
