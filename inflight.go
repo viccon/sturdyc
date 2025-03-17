@@ -21,7 +21,7 @@ func (c *Client[T]) newFlight(key string) *inFlightCall[T] {
 	return call
 }
 
-func makeCall[T, V any](ctx context.Context, c *Client[T], key string, fn FetchFn[V], call *inFlightCall[T]) {
+func makeCall[T any](ctx context.Context, c *Client[T], key string, fn FetchFn[T], call *inFlightCall[T]) {
 	defer func() {
 		if err := recover(); err != nil {
 			call.err = fmt.Errorf("sturdyc: panic recovered: %v", err)
@@ -44,29 +44,23 @@ func makeCall[T, V any](ctx context.Context, c *Client[T], key string, fn FetchF
 		return
 	}
 
-	res, ok := any(response).(T)
-	if !ok {
-		call.err = ErrInvalidType
-		return
-	}
-
 	call.err = nil
-	call.val = res
-	c.Set(key, res)
+	call.val = response
+	c.Set(key, response)
 }
 
-func callAndCache[V, T any](ctx context.Context, c *Client[T], key string, fn FetchFn[V]) (V, error) {
+func callAndCache[T any](ctx context.Context, c *Client[T], key string, fn FetchFn[T]) (T, error) {
 	c.inFlightMutex.Lock()
 	if call, ok := c.inFlightMap[key]; ok {
 		c.inFlightMutex.Unlock()
 		call.Wait()
-		return unwrap[V, T](call.val, call.err)
+		return call.val, call.err
 	}
 
 	call := c.newFlight(key)
 	c.inFlightMutex.Unlock()
 	makeCall(ctx, c, key, fn, call)
-	return unwrap[V, T](call.val, call.err)
+	return call.val, call.err
 }
 
 // newBatchFlight should be called with a lock.
