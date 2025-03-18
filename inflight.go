@@ -83,21 +83,19 @@ func (c *Client[T]) endBatchFlight(ids []string, keyFn KeyFn, call *inFlightCall
 	c.inFlightBatchMutex.Unlock()
 }
 
-type makeBatchCallOpts[T, V any] struct {
+type makeBatchCallOpts[T any] struct {
 	ids   []string
-	fn    BatchFetchFn[V]
+	fn    BatchFetchFn[T]
 	keyFn KeyFn
 	call  *inFlightCall[map[string]T]
 }
 
-func makeBatchCall[T, V any](ctx context.Context, c *Client[T], opts makeBatchCallOpts[T, V]) {
+func makeBatchCall[T any](ctx context.Context, c *Client[T], opts makeBatchCallOpts[T]) {
 	response, err := opts.fn(ctx, opts.ids)
 	for id, record := range response {
-		if v, ok := any(record).(T); ok {
-			opts.call.val[id] = v
-			if err == nil || errors.Is(err, errOnlyDistributedRecords) {
-				c.Set(opts.keyFn(id), v)
-			}
+		opts.call.val[id] = record
+		if err == nil || errors.Is(err, errOnlyDistributedRecords) {
+			c.Set(opts.keyFn(id), record)
 		}
 	}
 
@@ -124,13 +122,13 @@ func makeBatchCall[T, V any](ctx context.Context, c *Client[T], opts makeBatchCa
 	}
 }
 
-type callBatchOpts[T, V any] struct {
+type callBatchOpts[T any] struct {
 	ids   []string
 	keyFn KeyFn
-	fn    BatchFetchFn[V]
+	fn    BatchFetchFn[T]
 }
 
-func callAndCacheBatch[V, T any](ctx context.Context, c *Client[T], opts callBatchOpts[T, V]) (map[string]V, error) {
+func callAndCacheBatch[T any](ctx context.Context, c *Client[T], opts callBatchOpts[T]) (map[string]T, error) {
 	c.inFlightBatchMutex.Lock()
 
 	callIDs := make(map[*inFlightCall[map[string]T]][]string)
@@ -153,41 +151,37 @@ func callAndCacheBatch[V, T any](ctx context.Context, c *Client[T], opts callBat
 				}
 				c.endBatchFlight(uniqueIDs, opts.keyFn, call)
 			}()
-			batchCallOpts := makeBatchCallOpts[T, V]{ids: uniqueIDs, fn: opts.fn, keyFn: opts.keyFn, call: call}
+			batchCallOpts := makeBatchCallOpts[T]{ids: uniqueIDs, fn: opts.fn, keyFn: opts.keyFn, call: call}
 			makeBatchCall(ctx, c, batchCallOpts)
 		}()
 	}
 	c.inFlightBatchMutex.Unlock()
 
 	var err error
-	response := make(map[string]V, len(opts.ids))
+	response := make(map[string]T, len(opts.ids))
 	for call, callIDs := range callIDs {
 		call.Wait()
 
 		// We need to iterate through the values that WE want from this call. The batch
 		// could contain hundreds of IDs, but we might only want a few of them.
 		for _, id := range callIDs {
-			v, ok := call.val[id]
-			if !ok {
-				continue
+			if v, ok := call.val[id]; ok {
+				response[id] = v
 			}
-
-			if val, ok := any(v).(V); ok {
-				response[id] = val
-				continue
-			}
-			return response, ErrInvalidType
 		}
 
-		// It could be only cached records here, if we we're able
-		// to get some of the IDs from the distributed storage.
-		if call.err != nil && !errors.Is(call.err, ErrOnlyCachedRecords) {
-			return response, call.err
+		// This handles the scenario where we either don't get an error, or are
+		// using the distributed storage option and are able to get some records
+		// while the request to the underlying data source fails. In the latter
+		// case, we'll continue to accumulate partial responses as long as the only
+		// issue is cached-only records.
+		if err == nil || errors.Is(call.err, ErrOnlyCachedRecords) {
+			err = call.err
+			continue
 		}
 
-		if errors.Is(call.err, ErrOnlyCachedRecords) {
-			err = ErrOnlyCachedRecords
-		}
+		// For any other kind of error, we'll short‑circuit the function and return.
+		return response, call.err
 	}
 
 	return response, err

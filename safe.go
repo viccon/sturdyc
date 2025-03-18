@@ -21,19 +21,11 @@ func (c *Client[T]) safeGo(fn func()) {
 func wrap[T, V any](fetchFn FetchFn[V]) FetchFn[T] {
 	return func(ctx context.Context) (T, error) {
 		res, err := fetchFn(ctx)
-		if err != nil {
-			if val, ok := any(res).(T); ok {
-				return val, err
-			}
-			var zero T
-			return zero, err
+		if val, ok := any(res).(T); ok {
+			return val, err
 		}
-		val, ok := any(res).(T)
-		if !ok {
-			var zero T
-			return zero, ErrInvalidType
-		}
-		return val, nil
+		var zero T
+		return zero, ErrInvalidType
 	}
 }
 
@@ -42,7 +34,6 @@ func unwrap[V, T any](val T, err error) (V, error) {
 	if !ok {
 		return v, ErrInvalidType
 	}
-
 	return v, err
 }
 
