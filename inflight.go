@@ -93,7 +93,11 @@ type makeBatchCallOpts[T any] struct {
 func makeBatchCall[T any](ctx context.Context, c *Client[T], opts makeBatchCallOpts[T]) {
 	response, err := opts.fn(ctx, opts.ids)
 	for id, record := range response {
+		// We never want to discard values from the fetch functions, even if they
+		// return an error. Instead, we'll pass them to the user along with any
+		// errors and let them decide what to do.
 		opts.call.val[id] = record
+		// However, we'll only write them to the cache if the fetchFunction returned a non-nil error.
 		if err == nil || errors.Is(err, errOnlyDistributedRecords) {
 			c.Set(opts.keyFn(id), record)
 		}
