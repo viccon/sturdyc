@@ -33,6 +33,7 @@ func makeCall[T any](ctx context.Context, c *Client[T], key string, fn FetchFn[T
 	}()
 
 	response, err := fn(ctx)
+	call.val = response
 
 	if c.storeMissingRecords && errors.Is(err, ErrNotFound) {
 		c.StoreMissingRecord(key)
@@ -40,7 +41,6 @@ func makeCall[T any](ctx context.Context, c *Client[T], key string, fn FetchFn[T
 		return
 	}
 
-	call.val = response
 	call.err = err
 	if err != nil {
 		return
