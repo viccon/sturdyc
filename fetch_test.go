@@ -13,6 +13,43 @@ import (
 	"github.com/viccon/sturdyc"
 )
 
+func TestGetOrFetchMissingRecordCacheAny(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	capacity := 5
+	numShards := 2
+	ttl := time.Minute
+	evictionPercentage := 10
+	c := sturdyc.New[any](capacity, numShards, ttl, evictionPercentage,
+		sturdyc.WithNoContinuousEvictions(),
+		sturdyc.WithMissingRecordStorage(),
+	)
+
+	id := "1"
+	fetchObserver := NewFetchObserver(1)
+	fetchObserver.Err(sturdyc.ErrNotFound)
+
+	// The first time we call Get, it should call the fetchFn to retrieve the value.
+	_, err := sturdyc.GetOrFetch(ctx, c, id, fetchObserver.Fetch)
+	if !errors.Is(err, sturdyc.ErrMissingRecord) {
+		t.Fatalf("expected missing record error, got %v", err)
+	}
+
+	<-fetchObserver.FetchCompleted
+	fetchObserver.AssertFetchCount(t, 1)
+	fetchObserver.Err(sturdyc.ErrNotFound)
+
+	// The second time we call Get, we should still get the missing record
+	_, err = sturdyc.GetOrFetch(ctx, c, id, fetchObserver.Fetch)
+	if !errors.Is(err, sturdyc.ErrMissingRecord) {
+		t.Fatalf("expected missing record error, got %v", err)
+	}
+
+	// And only no more fetch should have been made
+	fetchObserver.AssertFetchCount(t, 1)
+}
+
 func TestGetOrFetch(t *testing.T) {
 	t.Parallel()
 

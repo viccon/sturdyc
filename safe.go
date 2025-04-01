@@ -36,6 +36,11 @@ func wrap[T, V any](fetchFn FetchFn[V]) FetchFn[T] {
 }
 
 func unwrap[V, T any](val T, err error) (V, error) {
+	if errors.Is(err, ErrMissingRecord) || errors.Is(err, ErrNotFound) {
+		var zero V
+		return zero, err
+	}
+
 	v, ok := any(val).(V)
 	if !ok {
 		return v, ErrInvalidType
