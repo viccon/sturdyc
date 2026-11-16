@@ -23,6 +23,10 @@ type MetricsRecorder interface {
 	CacheBatchRefreshSize(size int)
 	// ObserveCacheSize is called to report the size of the cache.
 	ObserveCacheSize(callback func() int)
+	// ObserveCacheSizeBytes is called to report the estimated size of the
+	// cache in bytes. The callback returns a running tally that is updated
+	// whenever entries are written or evicted, which makes it cheap to call.
+	ObserveCacheSizeBytes(callback func() int64)
 }
 
 type DistributedMetricsRecorder interface {

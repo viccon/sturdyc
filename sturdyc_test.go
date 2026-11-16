@@ -34,6 +34,7 @@ type TestMetricsRecorder struct {
 	evictedEntries       int
 	shards               map[int]int
 	batchSizes           []int
+	sizeBytesCallback    func() int64
 }
 
 func newTestMetricsRecorder(numShards int) *TestMetricsRecorder {
@@ -74,6 +75,19 @@ func (r *TestMetricsRecorder) MissingRecord() {
 }
 
 func (r *TestMetricsRecorder) ObserveCacheSize(_ func() int) {}
+
+func (r *TestMetricsRecorder) ObserveCacheSizeBytes(callback func() int64) {
+	r.Lock()
+	defer r.Unlock()
+	r.sizeBytesCallback = callback
+}
+
+// sizeBytes invokes the callback that the cache registered with ObserveCacheSizeBytes.
+func (r *TestMetricsRecorder) sizeBytes() int64 {
+	r.Lock()
+	defer r.Unlock()
+	return r.sizeBytesCallback()
+}
 
 func (r *TestMetricsRecorder) CacheBatchRefreshSize(n int) {
 	r.Lock()
