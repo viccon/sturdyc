@@ -1646,6 +1646,7 @@ I've included an example to showcase this functionality
 The cache can be configured to report custom metrics for:
 
 - Size of the cache
+- Estimated size of the cache in bytes
 - Cache hits
 - Cache misses
 - Background refreshes
@@ -1681,6 +1682,7 @@ type MetricsRecorder interface {
 	ShardIndex(int)
 	CacheBatchRefreshSize(size int)
 	ObserveCacheSize(callback func() int)
+	ObserveCacheSizeBytes(callback func() int64)
 }
 
 type DistributedMetricsRecorder interface {
@@ -1713,6 +1715,34 @@ cacheDistributedMetrics := sturdyc.New[any](
 	sturdyc.WithDistributedMetrics(metricsRecorder),
 )
 ```
+
+The callback that is passed to `ObserveCacheSizeBytes` returns an estimate of
+how much memory the entries in the cache occupy. Rather than measuring every
+entry whenever the callback is invoked, the cache estimates the size of each
+entry as it's written, and keeps a running tally that is adjusted whenever
+entries are overwritten, deleted, or evicted. This makes the callback cheap
+enough to use with a gauge that is scraped frequently, and dividing it by the
+number of entries gives you the average size of an entry.
+
+The estimate includes the key, the value, and the cache's own bookkeeping for
+each entry. The value is walked using reflection, which means that memory
+referenced through pointers, strings, slices, maps, and interfaces is included
+as well, and that shared or cyclic pointers are only counted once. There are a
+few things to keep in mind though:
+
+- It's an estimate. The runtime's internal overhead for things like maps and
+  memory alignment isn't measured exactly.
+- The size of a value is computed when it's written to the cache. If you
+  mutate a value after it has been cached, the estimate won't reflect the
+  change. Values should generally be treated as immutable once they've been
+  written, as they're shared between every caller that reads them.
+- Memory that sturdyc can't inspect, such as the buffers of channels or the
+  closures of functions, isn't included.
+- Walking large values isn't free. The cost is only paid by caches that have
+  been configured with a metrics recorder, and it's proportional to the number
+  of pointers, slice elements, and map entries that a value contains. Values
+  without any references, such as ints or structs of ints, skip the walk
+  entirely.
 
 Below are a few images where some of these metrics have been visualized in Grafana:
 

@@ -45,6 +45,7 @@ type Config struct {
 	useRelativeTimeKeyFormat bool
 	keyTruncation            time.Duration
 	getSize                  func() int
+	getSizeBytes             func() int64
 
 	distributedStorage              DistributedStorageWithDeletions
 	distributedEarlyRefreshes       bool
@@ -80,6 +81,7 @@ func New[T any](capacity, numShards int, ttl time.Duration, evictionPercentage i
 		clock:            NewClock(),
 		evictionInterval: ttl / time.Duration(numShards),
 		getSize:          client.Size,
+		getSizeBytes:     client.sizeBytes,
 		log:              slog.Default(),
 	}
 	// Apply the options to the configuration.
@@ -285,6 +287,17 @@ func (c *Client[T]) Size() int {
 	var sum int
 	for _, shard := range c.shards {
 		sum += shard.size()
+	}
+	return sum
+}
+
+// sizeBytes returns the estimated number of bytes that the cache's entries
+// occupy. The size is only tracked when the cache has been configured to
+// report metrics, and it's going to be 0 otherwise.
+func (c *Client[T]) sizeBytes() int64 {
+	var sum int64
+	for _, shard := range c.shards {
+		sum += shard.sizeBytes()
 	}
 	return sum
 }

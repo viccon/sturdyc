@@ -14,7 +14,12 @@ type entry[T any] struct {
 	backgroundRefreshAt  time.Time
 	synchronousRefreshAt time.Time
 	numOfRefreshRetries  int
-	isMissingRecord      bool
+	// size is the estimated number of bytes that the entry occupies. It's
+	// only computed when the cache has been configured to report metrics.
+	// It's an int32 so that it fits in the padding next to the bool, which
+	// means that it doesn't increase the size of the entry.
+	size            int32
+	isMissingRecord bool
 }
 
 // shard is a thread-safe data structure that holds a subset of the cache entries.
@@ -25,17 +30,27 @@ type shard[T any] struct {
 	ttl                time.Duration
 	entries            map[string]*entry[T]
 	evictionPercentage int
+	// sizer is nil unless the cache has been configured to report metrics.
+	sizer *entrySizer[T]
+	// sizeInBytes is a running tally of the estimated size of all entries.
+	sizeInBytes int64
 }
 
 // newShard creates a new shard and returns a pointer to it.
 func newShard[T any](capacity int, ttl time.Duration, evictionPercentage int, cfg *Config) *shard[T] {
-	return &shard[T]{
+	s := &shard[T]{
 		Config:             cfg,
 		capacity:           capacity,
 		ttl:                ttl,
 		entries:            make(map[string]*entry[T]),
 		evictionPercentage: evictionPercentage,
 	}
+	// Estimating the size of the entries isn't free, so we'll
+	// only do it if there is someone to report the size to.
+	if cfg.metricsRecorder != nil {
+		s.sizer = newEntrySizer[T]()
+	}
+	return s
 }
 
 // size returns the number of entries in the shard.
@@ -43,6 +58,19 @@ func (s *shard[T]) size() int {
 	s.RLock()
 	defer s.RUnlock()
 	return len(s.entries)
+}
+
+// sizeBytes returns the estimated number of bytes that the shard's entries occupy.
+func (s *shard[T]) sizeBytes() int64 {
+	s.RLock()
+	defer s.RUnlock()
+	return s.sizeInBytes
+}
+
+// removeEntry deletes an entry from the shard. Should be called with a lock.
+func (s *shard[T]) removeEntry(e *entry[T]) {
+	delete(s.entries, e.key)
+	s.sizeInBytes -= int64(e.size)
 }
 
 // evictExpired evicts all the expired entries in the shard.
@@ -53,7 +81,7 @@ func (s *shard[T]) evictExpired() {
 	var entriesEvicted int
 	for _, e := range s.entries {
 		if s.clock.Now().After(e.expiresAt) {
-			delete(s.entries, e.key)
+			s.removeEntry(e)
 			entriesEvicted++
 		}
 	}
@@ -69,6 +97,7 @@ func (s *shard[T]) forceEvict() {
 	if s.evictionPercentage == 100 {
 		evictedCount := len(s.entries)
 		s.entries = make(map[string]*entry[T])
+		s.sizeInBytes = 0
 		s.reportEntriesEvicted(evictedCount)
 		return
 	}
@@ -86,10 +115,10 @@ func (s *shard[T]) forceEvict() {
 	cutoff := FindCutoff(expirationTimes, percentage)
 	entriesToEvict := int(float64(len(expirationTimes)) * percentage)
 	entriesEvicted := 0
-	for key, e := range s.entries {
+	for _, e := range s.entries {
 		// Here we're essentially saying: if e.expiresAt <= cutoff.
 		if !e.expiresAt.After(cutoff) {
-			delete(s.entries, key)
+			s.removeEntry(e)
 			entriesEvicted++
 
 			if entriesEvicted == entriesToEvict {
@@ -161,6 +190,13 @@ func (s *shard[T]) get(key string) (val T, exists, markedAsMissing, backgroundRe
 // set writes a key-value pair to the shard and returns a
 // boolean indicating whether an eviction was performed.
 func (s *shard[T]) set(key string, value T, isMissingRecord bool) bool {
+	// The size is estimated before we acquire the lock, as it
+	// could involve walking a large value using reflection.
+	var size int32
+	if s.sizer != nil {
+		size = s.sizer.size(key, value)
+	}
+
 	s.Lock()
 	defer s.Unlock()
 
@@ -182,6 +218,7 @@ func (s *shard[T]) set(key string, value T, isMissingRecord bool) bool {
 		key:             key,
 		value:           value,
 		expiresAt:       now.Add(s.ttl),
+		size:            size,
 		isMissingRecord: isMissingRecord,
 	}
 
@@ -197,7 +234,13 @@ func (s *shard[T]) set(key string, value T, isMissingRecord bool) bool {
 		newEntry.numOfRefreshRetries = 0
 	}
 
+	// If we're overwriting an existing entry, we have to make
+	// sure that its size is subtracted from the running tally.
+	if existing, ok := s.entries[key]; ok {
+		s.sizeInBytes -= int64(existing.size)
+	}
 	s.entries[key] = newEntry
+	s.sizeInBytes += int64(size)
 	return evict
 }
 
@@ -205,7 +248,9 @@ func (s *shard[T]) set(key string, value T, isMissingRecord bool) bool {
 func (s *shard[T]) delete(key string) {
 	s.Lock()
 	defer s.Unlock()
-	delete(s.entries, key)
+	if e, ok := s.entries[key]; ok {
+		s.removeEntry(e)
+	}
 }
 
 // keys returns all non-expired keys in the shard.
