@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -184,8 +185,9 @@ func (c *Client[T]) PermutatedKey(prefix string, permutationStruct interface{}) 
 //	fn := c.BatchKeyFn("some-prefix")
 //	key := fn("1234") // some-prefix-ID-1234
 func (c *Client[T]) BatchKeyFn(prefix string) KeyFn {
+	keyPrefix := prefix + "-ID-"
 	return func(id string) string {
-		return fmt.Sprintf("%s-ID-%s", prefix, id)
+		return keyPrefix + id
 	}
 }
 
@@ -215,9 +217,34 @@ func (c *Client[T]) BatchKeyFn(prefix string) KeyFn {
 //	params := queryParams{"Stockholm", "Sweden"}
 //	cacheKeyFunc := c.PermutatedBatchKeyFn("prefix", params)
 //	key := cacheKeyFunc("1") // prefix-Stockholm-Sweden-ID-1
+//
+// The permutation is computed once, when the function is created, rather than
+// for every ID. With WithRelativeTimeKeyFormat, it's recomputed whenever the
+// current time moves into a new truncation interval.
 func (c *Client[T]) PermutatedBatchKeyFn(prefix string, permutationStruct interface{}) KeyFn {
-	return func(id string) string {
-		key := c.PermutatedKey(prefix, permutationStruct)
-		return fmt.Sprintf("%s-ID-%s", key, id)
+	if !c.useRelativeTimeKeyFormat {
+		keyPrefix := c.PermutatedKey(prefix, permutationStruct) + "-ID-"
+		return func(id string) string {
+			return keyPrefix + id
+		}
 	}
+
+	// Relative time keys depend on the current time, so we'll cache the
+	// permutation for as long as the truncated time stays the same.
+	var memo atomic.Pointer[permutationMemo]
+	return func(id string) string {
+		interval := c.clock.Now().Truncate(c.keyTruncation)
+		m := memo.Load()
+		if m == nil || !m.interval.Equal(interval) {
+			m = &permutationMemo{interval: interval, keyPrefix: c.PermutatedKey(prefix, permutationStruct) + "-ID-"}
+			memo.Store(m)
+		}
+		return m.keyPrefix + id
+	}
+}
+
+// permutationMemo caches the permutation of a PermutatedBatchKeyFn.
+type permutationMemo struct {
+	interval  time.Time
+	keyPrefix string
 }

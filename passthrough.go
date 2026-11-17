@@ -17,7 +17,7 @@ import (
 //
 //	The value and an error if one occurred and the key was not found in the cache.
 func (c *Client[T]) Passthrough(ctx context.Context, key string, fetchFn FetchFn[T]) (T, error) {
-	res, err := callAndCache(ctx, c, key, fetchFn)
+	res, err := callAndCache(ctx, c, key, fetchFn, passthroughOpts)
 	if err == nil {
 		return res, nil
 	}
@@ -67,7 +67,7 @@ func Passthrough[T, V any](ctx context.Context, c *Client[T], key string, fetchF
 //	A map of IDs to their corresponding values, and an error if one occurred and
 //	none of the IDs were found in the cache.
 func (c *Client[T]) PassthroughBatch(ctx context.Context, ids []string, keyFn KeyFn, fetchFn BatchFetchFn[T]) (map[string]T, error) {
-	res, err := callAndCacheBatch(ctx, c, callBatchOpts[T]{ids, keyFn, fetchFn})
+	res, err := callAndCacheBatch(ctx, c, callBatchOpts[T]{fetchOpts: passthroughOpts, ids: ids, keyFn: keyFn, fn: fetchFn})
 	if err == nil {
 		return res, nil
 	}

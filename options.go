@@ -71,6 +71,20 @@ func WithEarlyRefreshes(minAsyncRefreshTime, maxAsyncRefreshTime, syncRefreshTim
 	}
 }
 
+// WithBackgroundRefreshLimits limits the background refreshes that the cache
+// performs. maxConcurrent is the maximum number of background refreshes that
+// can run at the same time. If that limit has been reached, additional
+// refreshes are skipped, and they'll be attempted again the next time the key
+// is requested after the retry delay has passed. timeout is the maximum
+// duration of a background refresh. The defaults are 1000 concurrent
+// refreshes and a 30 second timeout.
+func WithBackgroundRefreshLimits(maxConcurrent int, timeout time.Duration) Option {
+	return func(c *Config) {
+		c.maxConcurrentRefreshes = maxConcurrent
+		c.refreshTimeout = timeout
+	}
+}
+
 // WithRefreshCoalescing will make the cache refresh data from batchable
 // endpoints more efficiently. It is going to create a buffer for each cache
 // key permutation, and gather IDs until the bufferSize is reached, or the
@@ -194,5 +208,19 @@ func validateConfig(capacity, numShards int, ttl time.Duration, evictionPercenta
 
 	if cfg.retryBaseDelay < 0 {
 		panic("retryBaseDelay must be greater than or equal to 0")
+	}
+
+	// A retry delay of 0 would schedule another refresh on nearly every read
+	// while the underlying data source is failing.
+	if cfg.earlyRefreshes && cfg.retryBaseDelay == 0 {
+		panic("retryBaseDelay must be greater than 0 when early refreshes are enabled")
+	}
+
+	if cfg.maxConcurrentRefreshes < 1 {
+		panic("maxConcurrent must be greater than 0")
+	}
+
+	if cfg.refreshTimeout <= 0 {
+		panic("refresh timeout must be greater than 0")
 	}
 }

@@ -119,12 +119,14 @@ func TestGetOrFetchRefreshRetries(t *testing.T) {
 	synchronousRefreshDelay := time.Second * 10
 	retryInterval := time.Millisecond * 10
 	clock := sturdyc.NewTestClock(time.Now())
+	metrics := newTestMetricsRecorder(numShards)
 
 	c := sturdyc.New[string](capacity, numShards, ttl, evictionPercentage,
 		sturdyc.WithNoContinuousEvictions(),
 		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, synchronousRefreshDelay, retryInterval),
 		sturdyc.WithMissingRecordStorage(),
 		sturdyc.WithClock(clock),
+		sturdyc.WithMetrics(metrics),
 	)
 
 	id := "1"
@@ -144,22 +146,24 @@ func TestGetOrFetchRefreshRetries(t *testing.T) {
 	// next call to GetOrFetchBatch result in a call to refresh the record.
 	clock.Add(maxRefreshDelay + 1)
 	fetchObserver.Err(errors.New("error"))
-	_, err = sturdyc.GetOrFetch(ctx, c, id, fetchObserver.Fetch)
+	awaitBackgroundRefresh(t, c, metrics, fetchObserver, func() {
+		_, err = sturdyc.GetOrFetch(ctx, c, id, fetchObserver.Fetch)
+	})
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
 	// Next, we'll assert that the retries grows exponentially. Even though we're
-	// making 100 requests with 1 second between them, we only expect 6 calls to
-	// go through.
+	// making 100 requests with 10 milliseconds between them, we only expect 6
+	// calls to go through. Each refresh is allowed to complete before the clock
+	// moves on, as a refresh that is still in flight would deduplicate the next one.
 	for i := 0; i < 100; i++ {
 		clock.Add(retryInterval)
-		sturdyc.GetOrFetch(ctx, c, id, fetchObserver.Fetch)
+		awaitBackgroundRefresh(t, c, metrics, fetchObserver, func() {
+			sturdyc.GetOrFetch(ctx, c, id, fetchObserver.Fetch)
+		})
 	}
-	for i := 0; i < 6; i++ {
-		<-fetchObserver.FetchCompleted
-	}
-	fetchObserver.AssertMaxFetchCount(t, 8)
+	fetchObserver.AssertFetchCount(t, 8)
 }
 
 func TestGetOrFetchMissingRecord(t *testing.T) {
@@ -364,11 +368,13 @@ func TestGetOrFetchBatchRetries(t *testing.T) {
 	synchronousRefreshDelay := time.Hour * 4
 	retryInterval := time.Second
 	clock := sturdyc.NewTestClock(time.Now())
+	metrics := newTestMetricsRecorder(numShards)
 	c := sturdyc.New[string](capacity, numShards, ttl, evictionPercentage,
 		sturdyc.WithNoContinuousEvictions(),
 		sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, synchronousRefreshDelay, retryInterval),
 		sturdyc.WithMissingRecordStorage(),
 		sturdyc.WithClock(clock),
+		sturdyc.WithMetrics(metrics),
 	)
 	fetchObserver := NewFetchObserver(6)
 
@@ -390,24 +396,25 @@ func TestGetOrFetchBatchRetries(t *testing.T) {
 	// next call to GetOrFetchBatch result in a call to refresh the record.
 	clock.Add(maxRefreshDelay + 1)
 	fetchObserver.Err(errors.New("error"))
-	_, err = sturdyc.GetOrFetchBatch(ctx, c, ids, c.BatchKeyFn("item"), fetchObserver.FetchBatch)
+	awaitBackgroundRefresh(t, c, metrics, fetchObserver, func() {
+		_, err = sturdyc.GetOrFetchBatch(ctx, c, ids, c.BatchKeyFn("item"), fetchObserver.FetchBatch)
+	})
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	<-fetchObserver.FetchCompleted
 	fetchObserver.AssertRequestedRecords(t, ids)
 	fetchObserver.AssertFetchCount(t, 2)
 
 	// Next, we'll assert that the retries grows exponentially. Even though we're
 	// making 100 requests with 1 second between them, we only expect 6 calls to
-	// go through.
+	// go through. Each refresh is allowed to complete before the clock moves on,
+	// as a refresh that is still in flight would deduplicate the next one.
 	for i := 0; i < 100; i++ {
 		clock.Add(retryInterval)
-		sturdyc.GetOrFetchBatch(ctx, c, ids, c.BatchKeyFn("item"), fetchObserver.FetchBatch)
-	}
-	for i := 0; i < 6; i++ {
-		<-fetchObserver.FetchCompleted
+		awaitBackgroundRefresh(t, c, metrics, fetchObserver, func() {
+			sturdyc.GetOrFetchBatch(ctx, c, ids, c.BatchKeyFn("item"), fetchObserver.FetchBatch)
+		})
 	}
 	fetchObserver.AssertFetchCount(t, 8)
 }
@@ -1844,5 +1851,77 @@ func TestGetOrFetchBatchGenericsClashingTypes(t *testing.T) {
 
 	if !errors.Is(secondCallErr, sturdyc.ErrInvalidType) {
 		t.Errorf("expected ErrInvalidType, got %v", secondCallErr)
+	}
+}
+
+func TestBackgroundRefreshesAreLimited(t *testing.T) {
+	t.Parallel()
+
+	clock := sturdyc.NewTestClock(time.Now())
+	c := sturdyc.New[string](100, 1, time.Hour, 10,
+		sturdyc.WithNoContinuousEvictions(),
+		sturdyc.WithClock(clock),
+		sturdyc.WithEarlyRefreshes(time.Second, time.Second, time.Minute, time.Second),
+		sturdyc.WithBackgroundRefreshLimits(1, time.Minute),
+	)
+	c.Set("a", "a")
+	c.Set("b", "b")
+	clock.Add(2 * time.Second)
+
+	var calls atomic.Int32
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	defer close(release)
+	fetch := func(_ context.Context) (string, error) {
+		calls.Add(1)
+		started <- struct{}{}
+		<-release
+		return "refreshed", nil
+	}
+
+	// The first refresh takes the only slot.
+	_, _ = c.GetOrFetch(context.Background(), "a", fetch)
+	<-started
+
+	// The second refresh is skipped.
+	_, _ = c.GetOrFetch(context.Background(), "b", fetch)
+	time.Sleep(50 * time.Millisecond)
+	if got := calls.Load(); got != 1 {
+		t.Errorf("expected 1 background refresh, got %d", got)
+	}
+}
+
+func TestBackgroundRefreshesHaveATimeout(t *testing.T) {
+	t.Parallel()
+
+	clock := sturdyc.NewTestClock(time.Now())
+	c := sturdyc.New[string](100, 1, time.Hour, 10,
+		sturdyc.WithNoContinuousEvictions(),
+		sturdyc.WithClock(clock),
+		sturdyc.WithEarlyRefreshes(time.Second, time.Second, time.Minute, time.Second),
+		sturdyc.WithBackgroundRefreshLimits(10, 20*time.Millisecond),
+	)
+	c.Set("key", "value")
+	clock.Add(2 * time.Second)
+
+	refreshErr := make(chan error, 1)
+	_, _ = c.GetOrFetch(context.Background(), "key", func(ctx context.Context) (string, error) {
+		<-ctx.Done()
+		refreshErr <- ctx.Err()
+		return "", ctx.Err()
+	})
+
+	select {
+	case err := <-refreshErr:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Errorf("expected the refresh to time out, got %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected the background refresh to time out")
+	}
+
+	// The failed refresh must not have removed the cached value.
+	if v, ok := c.Get("key"); !ok || v != "value" {
+		t.Errorf("expected the cached value to be kept, got %q", v)
 	}
 }

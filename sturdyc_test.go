@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 )
@@ -60,6 +61,12 @@ func (r *TestMetricsRecorder) AsynchronousRefresh() {
 	r.Lock()
 	defer r.Unlock()
 	r.backgroundRefreshes++
+}
+
+func (r *TestMetricsRecorder) numBackgroundRefreshes() int {
+	r.Lock()
+	defer r.Unlock()
+	return r.backgroundRefreshes
 }
 
 func (r *TestMetricsRecorder) SynchronousRefresh() {
@@ -273,5 +280,27 @@ func (f *FetchObserver) AssertMinFetchCount(t *testing.T, count int) {
 
 	if f.fetchCount < count {
 		t.Errorf("expected fetch count to be at minimum %d, got %d", count, f.fetchCount)
+	}
+}
+
+// awaitBackgroundRefresh runs the request, and if it scheduled a background
+// refresh, it waits for that refresh to be fetched and committed. This lets
+// tests advance the clock without a refresh still being in flight, which
+// would make the next refresh for the same key get deduplicated.
+func awaitBackgroundRefresh(t *testing.T, c interface{ NumKeysInflight() int }, metrics *TestMetricsRecorder, fetchObserver *FetchObserver, request func()) {
+	t.Helper()
+	before := metrics.numBackgroundRefreshes()
+	request()
+	if metrics.numBackgroundRefreshes() == before {
+		return
+	}
+
+	<-fetchObserver.FetchCompleted
+	deadline := time.Now().Add(5 * time.Second)
+	for c.NumKeysInflight() > 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for the background refresh to complete")
+		}
+		time.Sleep(time.Millisecond)
 	}
 }

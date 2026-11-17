@@ -50,17 +50,34 @@ type Config struct {
 	distributedStorage              DistributedStorageWithDeletions
 	distributedEarlyRefreshes       bool
 	distributedRefreshAfterDuration time.Duration
+
+	maxConcurrentRefreshes int
+	refreshTimeout         time.Duration
 }
+
+const (
+	// defaultMaxConcurrentRefreshes is the default maximum number of
+	// background refreshes that a client runs at the same time.
+	defaultMaxConcurrentRefreshes = 1000
+	// defaultRefreshTimeout is the default timeout for background refreshes.
+	defaultRefreshTimeout = 30 * time.Second
+)
 
 // Client represents a cache client that can be used to store and retrieve values.
 type Client[T any] struct {
 	*Config
-	shards             []*shard[T]
-	nextShard          int
-	inFlightMutex      sync.Mutex
-	inFlightBatchMutex sync.Mutex
-	inFlightMap        map[string]*inFlightCall[T]
-	inFlightBatchMap   map[string]*inFlightCall[map[string]T]
+	shards    []*shard[T]
+	nextShard int
+
+	// refreshSlots limits the number of concurrent background refreshes.
+	refreshSlots chan struct{}
+	// refreshCtx is the parent of every background refresh. It's cancelled
+	// when the client is closed.
+	refreshCtx      context.Context //nolint:containedctx // It's only used to cancel background refreshes on Close.
+	cancelRefreshes context.CancelFunc
+	closeOnce       sync.Once
+	closed          chan struct{}
+	evictionsDone   chan struct{}
 }
 
 // New creates a new Client instance with the specified configuration.
@@ -72,17 +89,19 @@ type Client[T any] struct {
 //	`opts` allows for additional configurations to be applied to the cache client.
 func New[T any](capacity, numShards int, ttl time.Duration, evictionPercentage int, opts ...Option) *Client[T] {
 	client := &Client[T]{
-		inFlightMap:      make(map[string]*inFlightCall[T]),
-		inFlightBatchMap: make(map[string]*inFlightCall[map[string]T]),
+		closed:        make(chan struct{}),
+		evictionsDone: make(chan struct{}),
 	}
 
 	// Create a default configuration, and then apply the options.
 	cfg := &Config{
-		clock:            NewClock(),
-		evictionInterval: ttl / time.Duration(numShards),
-		getSize:          client.Size,
-		getSizeBytes:     client.sizeBytes,
-		log:              slog.Default(),
+		clock:                  NewClock(),
+		evictionInterval:       ttl / time.Duration(numShards),
+		getSize:                client.Size,
+		getSizeBytes:           client.sizeBytes,
+		log:                    slog.Default(),
+		maxConcurrentRefreshes: defaultMaxConcurrentRefreshes,
+		refreshTimeout:         defaultRefreshTimeout,
 	}
 	// Apply the options to the configuration.
 	client.Config = cfg
@@ -98,31 +117,61 @@ func New[T any](capacity, numShards int, ttl time.Duration, evictionPercentage i
 	}
 	client.shards = shards
 	client.nextShard = 0
+	client.refreshSlots = make(chan struct{}, cfg.maxConcurrentRefreshes)
+	//nolint:gosec // The cancel function is called by Close.
+	client.refreshCtx, client.cancelRefreshes = context.WithCancel(context.Background())
 
 	// Run evictions on the shards in a separate goroutine.
-	if !cfg.disableContinuousEvictions {
+	if cfg.disableContinuousEvictions {
+		close(client.evictionsDone)
+	} else {
 		client.performContinuousEvictions()
 	}
 
 	return client
 }
 
-// performContinuousEvictions is going to be running in a separate goroutine that we're going to prevent from ever exiting.
+// Close stops the goroutine that evicts expired entries, cancels the
+// background refreshes that are in progress, and prevents new ones from being
+// scheduled. The cache can still be read from and written to after it has
+// been closed. It's safe to call Close multiple times.
+func (c *Client[T]) Close() {
+	c.closeOnce.Do(func() {
+		close(c.closed)
+		c.cancelRefreshes()
+	})
+	<-c.evictionsDone
+}
+
+// performContinuousEvictions is going to be running in a separate goroutine until the client is closed.
 func (c *Client[T]) performContinuousEvictions() {
 	// Create the ticker before starting the goroutine so that the eviction
 	// schedule starts when the client is created, and not whenever the
 	// scheduler first gets around to running the goroutine.
 	ticker, stop := c.clock.NewTicker(c.evictionInterval)
 	go func() {
+		defer close(c.evictionsDone)
 		defer stop()
-		for range ticker {
-			c.shards[c.nextShard].evictExpired()
-			c.nextShard = (c.nextShard + 1) % len(c.shards)
+		for {
+			select {
+			case <-c.closed:
+				return
+			case <-ticker:
+				c.shards[c.nextShard].evictExpired()
+				c.nextShard = (c.nextShard + 1) % len(c.shards)
+			}
 		}
 	}()
 }
 
-// getShard returns the shard that should be used for the specified key.
+// shardFor returns the shard that owns the specified key.
+func (c *Client[T]) shardFor(key string) *shard[T] {
+	hash := xxhash.Sum64String(key)
+	return c.shards[hash%uint64(len(c.shards))]
+}
+
+// getShard returns the shard that should be used for the specified key, and
+// reports its index to the metrics recorder.
 func (c *Client[T]) getShard(key string) *shard[T] {
 	hash := xxhash.Sum64String(key)
 	shardIndex := hash % uint64(len(c.shards))
@@ -318,9 +367,9 @@ func (c *Client[T]) Delete(key string) {
 //
 //	An integer representing the total number of keys that are currently being fetched.
 func (c *Client[T]) NumKeysInflight() int {
-	c.inFlightMutex.Lock()
-	defer c.inFlightMutex.Unlock()
-	c.inFlightBatchMutex.Lock()
-	defer c.inFlightBatchMutex.Unlock()
-	return len(c.inFlightMap) + len(c.inFlightBatchMap)
+	var sum int
+	for _, shard := range c.shards {
+		sum += shard.numInFlight()
+	}
+	return sum
 }
