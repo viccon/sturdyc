@@ -1,8 +1,10 @@
 package sturdyc_test
 
 import (
+	"context"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -453,5 +455,74 @@ func TestReportsMetricsForHitsAndMisses(t *testing.T) {
 
 	if metricsRecorder.cacheMisses != 1 {
 		t.Errorf("expected 1 cache miss, got %d", metricsRecorder.cacheMisses)
+	}
+}
+
+func TestOverwritingAKeyAtCapacityDoesNotTriggerAnEviction(t *testing.T) {
+	t.Parallel()
+
+	c := sturdyc.New[int](10, 1, time.Hour, 50, sturdyc.WithNoContinuousEvictions())
+	for i := 0; i < 10; i++ {
+		c.Set(strconv.Itoa(i), i)
+	}
+
+	if evicted := c.Set("0", 100); evicted {
+		t.Error("expected overwriting an existing key not to trigger an eviction")
+	}
+	if c.Size() != 10 {
+		t.Errorf("expected 10 entries, got %d", c.Size())
+	}
+	if v, ok := c.Get("0"); !ok || v != 100 {
+		t.Errorf("expected 100, got %d", v)
+	}
+}
+
+func TestOverwritingAKeyAtCapacityWithEvictionsDisabled(t *testing.T) {
+	t.Parallel()
+
+	c := sturdyc.New[int](2, 1, time.Hour, 0, sturdyc.WithNoContinuousEvictions())
+	c.Set("a", 1)
+	c.Set("b", 2)
+
+	// Existing keys must still be updated, otherwise refreshes would stop working once the cache is full.
+	c.Set("a", 3)
+	if v, _ := c.Get("a"); v != 3 {
+		t.Errorf("expected the existing key to be updated to 3, got %d", v)
+	}
+
+	// New keys are still rejected.
+	c.Set("c", 4)
+	if _, ok := c.Get("c"); ok {
+		t.Error("expected the new key to be rejected when the cache is full")
+	}
+}
+
+func TestCloseStopsBackgroundWork(t *testing.T) {
+	t.Parallel()
+
+	clock := sturdyc.NewTestClock(time.Now())
+	c := sturdyc.New[string](100, 1, time.Hour, 10,
+		sturdyc.WithClock(clock),
+		sturdyc.WithEarlyRefreshes(time.Minute, time.Minute, time.Hour/2, time.Second),
+	)
+	c.Set("key", "value")
+
+	// Close returns once the eviction goroutine has exited, and it's safe to call more than once.
+	c.Close()
+	c.Close()
+
+	clock.Add(time.Minute + time.Second)
+	var calls atomic.Int32
+	v, err := c.GetOrFetch(context.Background(), "key", func(_ context.Context) (string, error) {
+		calls.Add(1)
+		return "refreshed", nil
+	})
+	if err != nil || v != "value" {
+		t.Fatalf("expected the cached value, got %q and %v", v, err)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+	if got := calls.Load(); got != 0 {
+		t.Errorf("expected no background refreshes after Close, got %d", got)
 	}
 }

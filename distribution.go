@@ -168,13 +168,13 @@ func distributedBatchFetch[V, T any](c *Client[T], keyFn KeyFn, fetchFn BatchFet
 	}
 
 	return func(ctx context.Context, ids []string) (map[string]V, error) {
-		// We need to be able to look up the ID of the record based on the key.
-		keyIDMap := make(map[string]string, len(ids))
+		// The keys are computed once, and they're aligned with the IDs by index.
 		keys := make([]string, 0, len(ids))
+		keysByID := make(map[string]string, len(ids))
 		for _, id := range ids {
 			key := keyFn(id)
-			keyIDMap[key] = id
 			keys = append(keys, key)
+			keysByID[id] = key
 		}
 
 		distributedRecords := c.distributedStorage.GetBatch(ctx, keys)
@@ -184,8 +184,8 @@ func distributedBatchFetch[V, T any](c *Client[T], keyFn KeyFn, fetchFn BatchFet
 
 		// The IDs that we need to get from the underlying data source are the ones that are stale or missing.
 		idsToRefresh := make([]string, 0, len(ids))
-		for _, id := range ids {
-			key := keyFn(id)
+		for i, id := range ids {
+			key := keys[i]
 			bytes, existsInDistributedStorage := distributedRecords[key]
 			c.reportDistributedCacheHit(existsInDistributedStorage)
 
@@ -267,7 +267,7 @@ func distributedBatchFetch[V, T any](c *Client[T], keyFn KeyFn, fetchFn BatchFet
 		recordsToWrite := make(map[string][]byte, len(dataSourceResponses))
 		keysToDelete := make([]string, 0, max(len(idsToRefresh)-len(dataSourceResponses), 0))
 		for _, id := range idsToRefresh {
-			key := keyFn(id)
+			key := keysByID[id]
 			if response, ok := dataSourceResponses[id]; ok {
 				if recordBytes, marshalErr := marshalRecord[V](response, c); marshalErr == nil {
 					recordsToWrite[key] = recordBytes

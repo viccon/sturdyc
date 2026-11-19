@@ -105,6 +105,17 @@ The `New` function is variadic, and as the final argument we're also able to
 provide a wide range of configuration options, which we will explore in detail
 in the sections to follow.
 
+If you create clients that don't live for the lifetime of your program (in
+tests, for example), call `Close` when you're done with them. It stops the
+goroutine that evicts expired entries and cancels any background refreshes
+that are in progress. The cache can still be read from and written to after it
+has been closed, but it won't schedule any new background refreshes:
+
+```go
+cacheClient := sturdyc.New[int](capacity, numShards, ttl, evictionPercentage)
+defer cacheClient.Close()
+```
+
 # Evictions
 
 The cache has two eviction strategies. One is a background job which
@@ -448,6 +459,26 @@ requests:
 
 The entire example is available [here.](https://github.com/viccon/sturdyc/tree/main/examples/basic)
 
+The in-flight tracking is shared by `GetOrFetch`, `GetOrFetchBatch`, the
+passthrough functions and background refreshes. If a single key is requested
+while it's part of a batch that is being fetched (or the other way around), the
+caller waits for that request instead of making a new one.
+
+A few more things to note about requests that are waiting for an in-flight
+fetch:
+
+- They stop waiting when their own context is cancelled, or when its deadline
+  is exceeded.
+- The fetch function is called with the context of the request that started
+  the fetch. If that context is cancelled and the fetch fails, the requests
+  that were waiting with a context that is still alive retry the fetch, instead
+  of returning an error that belongs to another request.
+- If a key is written with `Set` or removed with `Delete` while it's being
+  fetched, the result of the fetch is still returned to the requests that were
+  waiting for it, but it isn't written to the cache. The fetch could have read
+  the data before it was updated, and a subsequent request for the key will
+  fetch it again.
+
 # Early refreshes
 
 Serving data from memory is typically at least one to two orders of magnitude
@@ -620,6 +651,9 @@ rely on cached records for the entire duration of the TTL.
 This also brings us to the final argument of the `WithEarlyRefreshes` function
 which is the retry base delay. This delay is used to create an exponential
 backoff for our background requests if a data source starts to return errors.
+The backoff never exceeds the TTL. A delay of 0 would retry a failing refresh
+on nearly every read, so it's replaced with 10 milliseconds, and a warning is
+logged.
 Please note that this **only** applies to background refreshes. If we reach a
 point where all of the records are older than the synchronous refresh time,
 we're going to send a steady stream of outgoing requests. That is because I
@@ -631,6 +665,22 @@ very next request for that key to attempt another refresh.
 Also, if you don't want any of this serve stale functionality you could just
 use short TTLs. The cache will never return a record where the TTL has expired.
 I'm just trying to showcase some different ways to leverage this functionality!
+
+Background refreshes time out after 30 seconds by default, as requests for a
+key can end up waiting for a background refresh of that key to complete. If
+you're worried about a lot of keys becoming due for a refresh at the same time,
+you can also limit the number of background refreshes that run concurrently.
+There is no such limit by default. When the limit has been reached, additional
+refreshes are skipped, and they'll be attempted again the next time the key is
+requested after the retry delay has passed:
+
+```go
+cacheClient := sturdyc.New[string](capacity, numShards, ttl, evictionPercentage,
+	sturdyc.WithEarlyRefreshes(minRefreshDelay, maxRefreshDelay, synchronousRefreshDelay, retryBaseDelay),
+	sturdyc.WithBackgroundRefreshTimeout(5*time.Second),
+	sturdyc.WithMaxConcurrentBackgroundRefreshes(100),
+)
+```
 
 The entire example is available [here.](https://github.com/viccon/sturdyc/tree/main/examples/refreshes)
 
