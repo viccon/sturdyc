@@ -71,6 +71,27 @@ func WithEarlyRefreshes(minAsyncRefreshTime, maxAsyncRefreshTime, syncRefreshTim
 	}
 }
 
+// WithBackgroundRefreshTimeout sets the maximum duration of a background
+// refresh. The context that is passed to the fetch function is cancelled once
+// it has been exceeded. The default is 30 seconds.
+func WithBackgroundRefreshTimeout(timeout time.Duration) Option {
+	return func(c *Config) {
+		c.refreshTimeout = timeout
+	}
+}
+
+// WithMaxConcurrentBackgroundRefreshes limits the number of background
+// refreshes that can run at the same time. When the limit has been reached,
+// additional refreshes are skipped, and they'll be attempted again the next
+// time the key is requested after the retry delay has passed. There is no
+// limit by default.
+func WithMaxConcurrentBackgroundRefreshes(maxConcurrent int) Option {
+	return func(c *Config) {
+		c.limitConcurrentRefreshes = true
+		c.maxConcurrentRefreshes = maxConcurrent
+	}
+}
+
 // WithRefreshCoalescing will make the cache refresh data from batchable
 // endpoints more efficiently. It is going to create a buffer for each cache
 // key permutation, and gather IDs until the bufferSize is reached, or the
@@ -194,5 +215,24 @@ func validateConfig(capacity, numShards int, ttl time.Duration, evictionPercenta
 
 	if cfg.retryBaseDelay < 0 {
 		panic("retryBaseDelay must be greater than or equal to 0")
+	}
+
+	if cfg.limitConcurrentRefreshes && cfg.maxConcurrentRefreshes < 1 {
+		panic("maxConcurrent must be greater than 0")
+	}
+
+	if cfg.refreshTimeout <= 0 {
+		panic("refresh timeout must be greater than 0")
+	}
+}
+
+// applyFallbacks replaces configuration values that would make the cache
+// misbehave with values that are safe to use.
+func applyFallbacks(cfg *Config) {
+	// A retry delay of 0 would schedule another background refresh on nearly
+	// every read while the underlying data source is failing.
+	if cfg.earlyRefreshes && cfg.retryBaseDelay == 0 {
+		cfg.log.Warn("sturdyc: a retryBaseDelay of 0 would retry failed refreshes on nearly every read; using " + fallbackRetryBaseDelay.String() + " instead")
+		cfg.retryBaseDelay = fallbackRetryBaseDelay
 	}
 }

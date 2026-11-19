@@ -2,6 +2,7 @@ package sturdyc_test
 
 import (
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -219,5 +220,66 @@ func TestTimePointers(t *testing.T) {
 	want = "key-empty-time"
 	if got != want {
 		t.Errorf("got: %s wanted: %s", got, want)
+	}
+}
+
+// warningCounter is a logger that counts the warnings it receives.
+type warningCounter struct {
+	warnings atomic.Int32
+}
+
+func (l *warningCounter) Warn(_ string, _ ...any)  { l.warnings.Add(1) }
+func (l *warningCounter) Error(_ string, _ ...any) {}
+
+func TestPermutatedBatchKeyFnComputesThePermutationOnce(t *testing.T) {
+	t.Parallel()
+
+	logger := &warningCounter{}
+	c := sturdyc.New[string](100, 1, time.Hour, 5,
+		sturdyc.WithNoContinuousEvictions(),
+		sturdyc.WithLog(logger),
+	)
+
+	// The unexported field makes PermutatedKey log a warning every time the permutation is computed.
+	type queryParams struct {
+		Country string
+		limit   int
+	}
+	keyFn := c.PermutatedBatchKeyFn("prefix", queryParams{Country: "SE", limit: 10})
+	for i := 0; i < 10; i++ {
+		keyFn(strconv.Itoa(i))
+	}
+
+	if got := logger.warnings.Load(); got != 1 {
+		t.Errorf("expected the permutation to be computed once, it was computed %d times", got)
+	}
+	if got, want := keyFn("1"), "prefix-SE-ID-1"; got != want {
+		t.Errorf("expected %q, got %q", want, got)
+	}
+}
+
+func TestPermutatedBatchKeyFnRecomputesRelativeTimeKeys(t *testing.T) {
+	t.Parallel()
+
+	clock := sturdyc.NewTestClock(time.Now().Truncate(time.Minute))
+	c := sturdyc.New[string](100, 1, time.Hour, 5,
+		sturdyc.WithNoContinuousEvictions(),
+		sturdyc.WithRelativeTimeKeyFormat(time.Minute),
+		sturdyc.WithClock(clock),
+	)
+
+	type queryParams struct {
+		From time.Time
+	}
+	params := queryParams{From: clock.Now().Add(time.Hour)}
+	keyFn := c.PermutatedBatchKeyFn("prefix", params)
+
+	if got, want := keyFn("1"), c.PermutatedKey("prefix", params)+"-ID-1"; got != want {
+		t.Errorf("expected %q, got %q", want, got)
+	}
+
+	clock.Add(time.Minute)
+	if got, want := keyFn("1"), c.PermutatedKey("prefix", params)+"-ID-1"; got != want {
+		t.Errorf("expected the key to change with the time interval: want %q, got %q", want, got)
 	}
 }

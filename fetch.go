@@ -45,14 +45,10 @@ func getFetch[V, T any](ctx context.Context, c *Client[T], key string, fetchFn F
 	wrappedFetch := wrap[T](distributedFetch(c, key, fetchFn))
 
 	if synchronousRefresh {
-		res, err := callAndCache(ctx, c, key, wrappedFetch)
-		//  Check if the record has been deleted at the source. If it has, we'll
-		//  delete it from the cache too. NOTE: The callAndCache function converts
-		//  ErrNotFound to ErrMissingRecord if missing record storage is enabled.
-		if ok && errors.Is(err, ErrNotFound) {
-			c.Delete(key)
-		}
-
+		// If the record has been deleted at the source, the fetch removes it from
+		// the cache too. NOTE: The callAndCache function converts ErrNotFound to
+		// ErrMissingRecord if missing record storage is enabled.
+		res, err := callAndCache(ctx, c, key, wrappedFetch, getOrFetchOpts)
 		if errors.Is(err, ErrMissingRecord) || errors.Is(err, ErrNotFound) {
 			return res, err
 		}
@@ -70,8 +66,8 @@ func getFetch[V, T any](ctx context.Context, c *Client[T], key string, fetchFn F
 	}
 
 	if backgroundRefresh {
-		c.safeGo(func() {
-			c.refresh(key, wrappedFetch)
+		c.scheduleRefresh(func(ctx context.Context) {
+			c.refresh(ctx, key, wrappedFetch)
 		})
 	}
 
@@ -83,7 +79,7 @@ func getFetch[V, T any](ctx context.Context, c *Client[T], key string, fetchFn F
 		return value, nil
 	}
 
-	return callAndCache(ctx, c, key, wrappedFetch)
+	return callAndCache(ctx, c, key, wrappedFetch, getOrFetchOpts)
 }
 
 // GetOrFetch attempts to retrieve the specified key from the cache. If the value
@@ -132,13 +128,13 @@ func getFetchBatch[V, T any](ctx context.Context, c *Client[T], ids []string, ke
 
 	// Schedule background refreshes.
 	if len(idsToBackgroundRefresh) > 0 {
-		c.safeGo(func() {
-			if c.bufferRefreshes {
+		if c.bufferRefreshes {
+			c.safeGo(func() {
 				bufferBatchRefresh(c, idsToBackgroundRefresh, keyFn, wrappedFetch)
-				return
-			}
-			c.refreshBatch(idsToBackgroundRefresh, keyFn, wrappedFetch)
-		})
+			})
+		} else {
+			c.scheduleBatchRefresh(idsToBackgroundRefresh, keyFn, wrappedFetch)
+		}
 	}
 
 	// If we were able to retrieve all records from the cache, we can return them straight away.
@@ -151,14 +147,14 @@ func getFetchBatch[V, T any](ctx context.Context, c *Client[T], ids []string, ke
 	cacheMissesAndSyncRefreshes = append(cacheMissesAndSyncRefreshes, cacheMisses...)
 	cacheMissesAndSyncRefreshes = append(cacheMissesAndSyncRefreshes, idsToSynchronouslyRefresh...)
 
-	callBatchOpts := callBatchOpts[T]{ids: cacheMissesAndSyncRefreshes, keyFn: keyFn, fn: wrappedFetch}
+	callBatchOpts := callBatchOpts[T]{fetchOpts: getOrFetchOpts, ids: cacheMissesAndSyncRefreshes, keyFn: keyFn, fn: wrappedFetch}
 	response, err := callAndCacheBatch(ctx, c, callBatchOpts)
 
 	// If we did a call to synchronously refresh some of the records, and it
 	// didn't fail, we'll have to check if any of the IDs have been deleted at
-	// the underlying data source. If they have, we'll have to delete them from
-	// the cache and remove them from the cachedRecords map so that we don't
-	// return them.
+	// the underlying data source. The fetch has already removed them from the
+	// cache, but we also have to remove them from the cachedRecords map so
+	// that we don't return them.
 	if err == nil && len(idsToSynchronouslyRefresh) > 0 {
 		for _, id := range idsToSynchronouslyRefresh {
 			// If we have it in the cache, but not in the response, it means
@@ -166,9 +162,6 @@ func getFetchBatch[V, T any](ctx context.Context, c *Client[T], ids []string, ke
 			_, okResponse := response[id]
 			_, okCache := cachedRecords[id]
 			if okCache && !okResponse {
-				if !c.storeMissingRecords {
-					c.Delete(keyFn(id))
-				}
 				delete(cachedRecords, id)
 			}
 		}

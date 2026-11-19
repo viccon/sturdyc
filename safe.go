@@ -37,6 +37,13 @@ func unwrap[V, T any](val T, err error) (V, error) {
 
 	v, ok := any(val).(V)
 	if !ok {
+		// When T is an interface type, a request that fails without a value
+		// carries a nil T, which can't be asserted to V. That's not a type
+		// mismatch, so the caller should get the error that caused it, such as
+		// the waiter's context error, or ErrNotFound from a joined batch fetch.
+		if any(val) == nil && err != nil {
+			return v, err
+		}
 		return v, ErrInvalidType
 	}
 	return v, err

@@ -166,3 +166,23 @@ func TestPanicsIfTheRetryBaseDelayIsLessThanZero(t *testing.T) {
 		sturdyc.WithEarlyRefreshes(time.Minute, time.Hour, time.Hour*2, -1),
 	)
 }
+
+func TestPanicsIfTheBackgroundRefreshOptionsAreInvalid(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]sturdyc.Option{
+		"zero concurrency": sturdyc.WithMaxConcurrentBackgroundRefreshes(0),
+		"zero timeout":     sturdyc.WithBackgroundRefreshTimeout(0),
+	}
+	for name, option := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			defer func() {
+				if recover() == nil {
+					t.Error("expected a panic")
+				}
+			}()
+			sturdyc.New[string](100, 10, time.Minute, 5, option)
+		})
+	}
+}
