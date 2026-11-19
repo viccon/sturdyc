@@ -101,13 +101,11 @@ func TestPassthroughBatch(t *testing.T) {
 		if !cmp.Equal(res, map[string]string{"1": "value1", "2": "value2", "3": "value3"}) {
 			t.Errorf("expected value1, value2, value3, got %v", res)
 		}
-		time.Sleep(2 * time.Millisecond)
 	}
 
-	// We can't say exactly how many got through because there are multiple
-	// goroutines running and it requires a lock to remove an in-flight key.
-	fetchObserver.AssertMinFetchCount(t, numPassthroughs/2)
-	fetchObserver.AssertMaxFetchCount(t, numPassthroughs+1)
+	// Every call is made after the previous one has completed,
+	// so each one of them should result in a new fetch.
+	fetchObserver.AssertFetchCount(t, numPassthroughs+1)
 
 	fetchObserver.Clear()
 	fetchObserver.Err(errors.New("error"))

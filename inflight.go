@@ -26,10 +26,13 @@ func makeCall[T any](ctx context.Context, c *Client[T], key string, fn FetchFn[T
 		if err := recover(); err != nil {
 			call.err = fmt.Errorf("sturdyc: panic recovered: %v", err)
 		}
-		call.Done()
+		// The key has to be removed before we call Done. Otherwise, a caller
+		// that arrives after the call has completed could still find it in the
+		// map, and get the old result instead of making a new call.
 		c.inFlightMutex.Lock()
 		delete(c.inFlightMap, key)
 		c.inFlightMutex.Unlock()
+		call.Done()
 	}()
 
 	response, err := fn(ctx)
@@ -79,12 +82,15 @@ func (c *Client[T]) newBatchFlight(ids []string, keyFn KeyFn) *inFlightCall[map[
 }
 
 func (c *Client[T]) endBatchFlight(ids []string, keyFn KeyFn, call *inFlightCall[map[string]T]) {
-	call.Done()
+	// The keys have to be removed before we call Done. Otherwise, a caller
+	// that arrives after the call has completed could still find them in the
+	// map, and get the old result instead of making a new call.
 	c.inFlightBatchMutex.Lock()
 	for _, id := range ids {
 		delete(c.inFlightBatchMap, keyFn(id))
 	}
 	c.inFlightBatchMutex.Unlock()
+	call.Done()
 }
 
 type makeBatchCallOpts[T any] struct {
