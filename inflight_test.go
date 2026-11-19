@@ -373,6 +373,43 @@ func TestWaitersRespectTheirOwnContext(t *testing.T) {
 	}
 }
 
+func TestWaitersGetTheirContextErrorFromTheTypedHelpers(t *testing.T) {
+	t.Parallel()
+
+	// With an interface type, the waiter's result holds a nil T, which must not
+	// be reported as a type mismatch.
+	c := sturdyc.New[any](100, 1, time.Hour, 10, sturdyc.WithNoContinuousEvictions())
+	var calls atomic.Int32
+	fetch, started, release := blockingFetch("value", &calls)
+	defer close(release)
+	go func() {
+		_, _ = sturdyc.GetOrFetch(context.Background(), c, "key", fetch)
+	}()
+	<-started
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	v, err := sturdyc.GetOrFetch(ctx, c, "key", fetch)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("expected the waiter's own deadline to be exceeded, got %v", err)
+	}
+	if v != "" {
+		t.Errorf("expected the zero value, got %q", v)
+	}
+}
+
+func TestPanicsAreReportedByTheTypedHelpers(t *testing.T) {
+	t.Parallel()
+
+	c := sturdyc.New[any](100, 1, time.Hour, 10, sturdyc.WithNoContinuousEvictions())
+	_, err := sturdyc.GetOrFetch(context.Background(), c, "key", func(_ context.Context) (string, error) {
+		panic("boom")
+	})
+	if err == nil || errors.Is(err, sturdyc.ErrInvalidType) {
+		t.Errorf("expected the panic to be reported, got %v", err)
+	}
+}
+
 func TestWaitersRetryWhenTheLeadersContextIsCancelled(t *testing.T) {
 	t.Parallel()
 
@@ -508,6 +545,45 @@ func TestSingleFetchesJoinBatchFetchesForTheSameKey(t *testing.T) {
 	// ID 2 wasn't returned by the batch, which means that it doesn't exist.
 	if err, ok := got[""]; !ok || !errors.Is(err, sturdyc.ErrNotFound) {
 		t.Errorf("expected ErrNotFound for the ID that the batch didn't return, got %v", got)
+	}
+	if n := calls.Load(); n != 1 {
+		t.Errorf("expected 1 fetch, got %d", n)
+	}
+}
+
+func TestSingleFetchesJoiningABatchGetErrNotFoundFromTheTypedHelpers(t *testing.T) {
+	t.Parallel()
+
+	// With an interface type, an ID that the batch didn't return holds a nil T,
+	// which must not be reported as a type mismatch.
+	c := sturdyc.New[any](100, 1, time.Hour, 10, sturdyc.WithNoContinuousEvictions())
+	keyFn := c.BatchKeyFn("item")
+	var calls atomic.Int32
+	started := make(chan struct{})
+	release := make(chan struct{})
+	go func() {
+		_, _ = sturdyc.GetOrFetchBatch(context.Background(), c, []string{"1", "2"}, keyFn, func(_ context.Context, _ []string) (map[string]string, error) {
+			calls.Add(1)
+			close(started)
+			<-release
+			return map[string]string{"1": "value-1"}, nil
+		})
+	}()
+	<-started
+
+	errs := make(chan error)
+	go func() {
+		_, err := sturdyc.GetOrFetch(context.Background(), c, keyFn("2"), func(_ context.Context) (string, error) {
+			calls.Add(1)
+			return "unexpected", nil
+		})
+		errs <- err
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	close(release)
+	if err := <-errs; !errors.Is(err, sturdyc.ErrNotFound) {
+		t.Errorf("expected ErrNotFound for the ID that the batch didn't return, got %v", err)
 	}
 	if n := calls.Load(); n != 1 {
 		t.Errorf("expected 1 fetch, got %d", n)
