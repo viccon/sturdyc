@@ -313,14 +313,14 @@ func (s *shard[T]) numInFlight() int {
 
 // joinOrLead returns the fetch that is in flight for the key. If there isn't
 // one, a new flight is registered as part of the given call, and the caller
-// becomes responsible for fetching the key. If the call is nil, a new one is
-// created.
+// becomes responsible for fetching the key. If the call is nil, a new one of
+// the given kind is created.
 //
 // If reuseFresh is true and the key has an entry that doesn't need to be
 // fetched, a completed flight holding that entry is returned instead. This
 // happens when another fetch commits its result after the caller looked the
 // key up, but before it got here.
-func (s *shard[T]) joinOrLead(key string, c *call, reuseFresh bool) (f *flight[T], leader bool) {
+func (s *shard[T]) joinOrLead(key string, c *call, kind fetchKind, reuseFresh bool) (f *flight[T], leader bool) {
 	s.Lock()
 	defer s.Unlock()
 	if existing, ok := s.inFlight[key]; ok {
@@ -334,11 +334,31 @@ func (s *shard[T]) joinOrLead(key string, c *call, reuseFresh bool) (f *flight[T
 		return cached, false
 	}
 	if c == nil {
-		c = newCall()
+		c = newCall(kind)
 	}
 	f = &flight[T]{call: c}
 	s.inFlight[key] = f
 	return f, true
+}
+
+// abandon removes a flight that won't be committed, so that subsequent
+// requests start a new fetch instead of joining it.
+func (s *shard[T]) abandon(key string, f *flight[T]) {
+	s.Lock()
+	defer s.Unlock()
+	if s.inFlight[key] == f {
+		delete(s.inFlight, key)
+	}
+}
+
+// store writes an entry without invalidating the fetch that is in flight for
+// the key, if any. It's used for records that a batch fetch returned without
+// being asked for them.
+func (s *shard[T]) store(key string, value T) {
+	size := s.entrySize(key, value)
+	s.Lock()
+	defer s.Unlock()
+	s.write(key, value, false, size)
 }
 
 // isFresh reports whether an entry can be returned without being fetched,

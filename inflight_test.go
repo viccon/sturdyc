@@ -514,7 +514,7 @@ func TestSingleFetchesJoinBatchFetchesForTheSameKey(t *testing.T) {
 	}
 }
 
-func TestBatchFetchesReturnErrorsFromJoinedFetches(t *testing.T) {
+func TestBatchFetchesRetryKeysWhenAJoinedSingleFetchFails(t *testing.T) {
 	t.Parallel()
 
 	c := sturdyc.New[string](100, 1, time.Hour, 10, sturdyc.WithNoContinuousEvictions())
@@ -535,14 +535,300 @@ func TestBatchFetchesReturnErrorsFromJoinedFetches(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 		close(release)
 	}()
+	var mu sync.Mutex
+	var requested [][]string
+	res, err := c.GetOrFetchBatch(context.Background(), []string{"1", "2"}, keyFn, func(_ context.Context, ids []string) (map[string]string, error) {
+		mu.Lock()
+		requested = append(requested, ids)
+		mu.Unlock()
+		vals := make(map[string]string, len(ids))
+		for _, id := range ids {
+			vals[id] = "value-" + id
+		}
+		return vals, nil
+	})
+	// The single fetch uses another fetch function, so its error isn't a reason
+	// to fail the batch. The batch fetches the key with its own function instead.
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+	if res["1"] != "value-1" || res["2"] != "value-2" {
+		t.Errorf("expected both values, got %v", res)
+	}
+	if len(requested) != 2 || len(requested[0]) != 1 || requested[0][0] != "2" || len(requested[1]) != 1 || requested[1][0] != "1" {
+		t.Errorf("expected the batch to fetch ID 2, and then ID 1 after the single fetch failed, got %v", requested)
+	}
+}
+
+func TestBatchFetchesReturnErrorsFromJoinedBatchFetches(t *testing.T) {
+	t.Parallel()
+
+	c := sturdyc.New[string](100, 1, time.Hour, 10, sturdyc.WithNoContinuousEvictions())
+	keyFn := c.BatchKeyFn("item")
+	errBoom := errors.New("boom")
+	started := make(chan struct{})
+	release := make(chan struct{})
+	go func() {
+		_, _ = c.GetOrFetchBatch(context.Background(), []string{"1"}, keyFn, func(_ context.Context, _ []string) (map[string]string, error) {
+			close(started)
+			<-release
+			return nil, errBoom
+		})
+	}()
+	<-started
+
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		close(release)
+	}()
+	var calls atomic.Int32
 	res, err := c.GetOrFetchBatch(context.Background(), []string{"1", "2"}, keyFn, func(_ context.Context, _ []string) (map[string]string, error) {
+		calls.Add(1)
 		return map[string]string{"2": "value-2"}, nil
 	})
+	// Batches that join each other fail together, as they always have.
 	if !errors.Is(err, errBoom) {
-		t.Errorf("expected the error from the joined fetch, got %v", err)
+		t.Errorf("expected the error from the joined batch, got %v", err)
 	}
 	if res["2"] != "value-2" {
 		t.Errorf("expected the records that we were able to fetch, got %v", res)
+	}
+	if n := calls.Load(); n != 1 {
+		t.Errorf("expected 1 call to our own fetch function, got %d", n)
+	}
+}
+
+func TestSingleFetchesRetryOnceWhenAJoinedBatchFetchFails(t *testing.T) {
+	t.Parallel()
+
+	c := sturdyc.New[string](100, 1, time.Hour, 10, sturdyc.WithNoContinuousEvictions())
+	keyFn := c.BatchKeyFn("item")
+	started := make(chan struct{})
+	release := make(chan struct{})
+	go func() {
+		_, _ = c.GetOrFetchBatch(context.Background(), []string{"1"}, keyFn, func(_ context.Context, _ []string) (map[string]string, error) {
+			close(started)
+			<-release
+			return nil, errors.New("batch endpoint is down")
+		})
+	}()
+	<-started
+
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		close(release)
+	}()
+	var calls atomic.Int32
+	errSingle := errors.New("single endpoint is down")
+	_, err := c.GetOrFetch(context.Background(), keyFn("1"), func(_ context.Context) (string, error) {
+		calls.Add(1)
+		return "", errSingle
+	})
+	if !errors.Is(err, errSingle) {
+		t.Errorf("expected the error from our own fetch function, got %v", err)
+	}
+	if n := calls.Load(); n != 1 {
+		t.Errorf("expected our own fetch function to be called once, got %d", n)
+	}
+
+	v, err := c.GetOrFetch(context.Background(), keyFn("1"), func(_ context.Context) (string, error) {
+		return "value-1", nil
+	})
+	if err != nil || v != "value-1" {
+		t.Errorf("expected value-1 without an error, got %q, %v", v, err)
+	}
+}
+
+func TestFetchFunctionsCanRequestTheirOwnKeys(t *testing.T) {
+	t.Parallel()
+
+	type fetchCase struct {
+		name string
+		run  func(ctx context.Context, c *sturdyc.Client[string], keyFn sturdyc.KeyFn) (string, error)
+	}
+	cases := []fetchCase{
+		{
+			name: "a batch fetch that requests a single key",
+			run: func(ctx context.Context, c *sturdyc.Client[string], keyFn sturdyc.KeyFn) (string, error) {
+				res, err := c.GetOrFetchBatch(ctx, []string{"1", "2"}, keyFn, func(ctx context.Context, ids []string) (map[string]string, error) {
+					vals := make(map[string]string, len(ids))
+					for _, id := range ids {
+						v, err := c.GetOrFetch(ctx, keyFn(id), func(context.Context) (string, error) {
+							return "value-" + id, nil
+						})
+						if err != nil {
+							return nil, err
+						}
+						vals[id] = v
+					}
+					return vals, nil
+				})
+				return res["1"], err
+			},
+		},
+		{
+			name: "a single fetch that requests a batch",
+			run: func(ctx context.Context, c *sturdyc.Client[string], keyFn sturdyc.KeyFn) (string, error) {
+				return c.GetOrFetch(ctx, keyFn("1"), func(ctx context.Context) (string, error) {
+					res, err := c.GetOrFetchBatch(ctx, []string{"1"}, keyFn, func(context.Context, []string) (map[string]string, error) {
+						return map[string]string{"1": "value-1"}, nil
+					})
+					return res["1"], err
+				})
+			},
+		},
+		{
+			name: "a single fetch that requests its own key",
+			run: func(ctx context.Context, c *sturdyc.Client[string], keyFn sturdyc.KeyFn) (string, error) {
+				return c.GetOrFetch(ctx, keyFn("1"), func(ctx context.Context) (string, error) {
+					return c.GetOrFetch(ctx, keyFn("1"), func(context.Context) (string, error) {
+						return "value-1", nil
+					})
+				})
+			},
+		},
+		{
+			name: "a batch fetch that requests its own batch from another goroutine",
+			run: func(ctx context.Context, c *sturdyc.Client[string], keyFn sturdyc.KeyFn) (string, error) {
+				res, err := c.GetOrFetchBatch(ctx, []string{"1"}, keyFn, func(ctx context.Context, ids []string) (map[string]string, error) {
+					type result struct {
+						vals map[string]string
+						err  error
+					}
+					inner := make(chan result)
+					go func() {
+						vals, err := c.GetOrFetchBatch(ctx, ids, keyFn, func(context.Context, []string) (map[string]string, error) {
+							return map[string]string{"1": "value-1"}, nil
+						})
+						inner <- result{vals, err}
+					}()
+					r := <-inner
+					return r.vals, r.err
+				})
+				return res["1"], err
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			c := sturdyc.New[string](100, 1, time.Hour, 10, sturdyc.WithNoContinuousEvictions())
+			keyFn := c.BatchKeyFn("item")
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			v, err := tc.run(ctx, c, keyFn)
+			if err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+			if v != "value-1" {
+				t.Errorf("expected value-1, got %q", v)
+			}
+			if cached, ok := c.Get(keyFn("1")); !ok || cached != "value-1" {
+				t.Errorf("expected value-1 to be cached, got %q", cached)
+			}
+			if n := c.NumKeysInflight(); n != 0 {
+				t.Errorf("expected no keys in flight, got %d", n)
+			}
+		})
+	}
+}
+
+func TestNilContextsAreTreatedAsBackground(t *testing.T) {
+	t.Parallel()
+
+	c := sturdyc.New[string](100, 1, time.Hour, 10, sturdyc.WithNoContinuousEvictions())
+	errBoom := errors.New("boom")
+
+	//nolint:staticcheck // We're testing that a nil context works.
+	_, err := c.GetOrFetch(nil, "failing", func(context.Context) (string, error) {
+		return "", errBoom
+	})
+	if !errors.Is(err, errBoom) {
+		t.Errorf("expected the fetch function's error, got %v", err)
+	}
+
+	//nolint:staticcheck // We're testing that a nil context works.
+	res, err := c.GetOrFetchBatch(nil, []string{"1"}, c.BatchKeyFn("item"), func(context.Context, []string) (map[string]string, error) {
+		return nil, errBoom
+	})
+	if !errors.Is(err, errBoom) || len(res) != 0 {
+		t.Errorf("expected the batch fetch function's error, got %v, %v", res, err)
+	}
+
+	// A waiter with a nil context.
+	var calls atomic.Int32
+	fetch, started, release := blockingFetch("value", &calls)
+	go func() {
+		_, _ = c.GetOrFetch(context.Background(), "key", fetch)
+	}()
+	<-started
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		close(release)
+	}()
+	//nolint:staticcheck // We're testing that a nil context works.
+	v, err := c.GetOrFetch(nil, "key", fetch)
+	if err != nil || v != "value" {
+		t.Errorf("expected the waiter to get the leader's value, got %q, %v", v, err)
+	}
+}
+
+func TestWaitersAreReleasedIfABatchPanicsAfterTheFetch(t *testing.T) {
+	t.Parallel()
+
+	c := sturdyc.New[string](100, 1, time.Hour, 10,
+		sturdyc.WithNoContinuousEvictions(),
+		sturdyc.WithLog(&sturdyc.NoopLogger{}),
+	)
+	// The key function panics for an ID that the fetch function returns
+	// without being asked for it, which happens after the flights are committed.
+	keyFn := func(id string) string {
+		if id == "unrequested" {
+			panic("unexpected ID")
+		}
+		return "item-" + id
+	}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	batchResult := make(chan map[string]string)
+	go func() {
+		res, err := c.GetOrFetchBatch(context.Background(), []string{"1"}, keyFn, func(context.Context, []string) (map[string]string, error) {
+			close(started)
+			<-release
+			return map[string]string{"1": "value-1", "unrequested": "value"}, nil
+		})
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+		batchResult <- res
+	}()
+	<-started
+
+	waiterResult := make(chan string)
+	go func() {
+		v, _ := c.GetOrFetch(context.Background(), "item-1", func(context.Context) (string, error) {
+			return "unexpected", nil
+		})
+		waiterResult <- v
+	}()
+	time.Sleep(50 * time.Millisecond)
+	close(release)
+
+	select {
+	case v := <-waiterResult:
+		if v != "value-1" {
+			t.Errorf("expected the waiter to get value-1, got %q", v)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the waiter was never released")
+	}
+	if res := <-batchResult; res["1"] != "value-1" {
+		t.Errorf("expected the batch to get value-1, got %v", res)
+	}
+	if n := c.NumKeysInflight(); n != 0 {
+		t.Errorf("expected no keys in flight, got %d", n)
 	}
 }
 

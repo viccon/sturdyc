@@ -478,6 +478,15 @@ fetch:
   waiting for it, but it isn't written to the cache. The fetch could have read
   the data before it was updated, and a subsequent request for the key will
   fetch it again.
+- If a request joins a fetch that was started by another kind of request (a
+  `GetOrFetch` joining a batch, a batch joining a single fetch, or either one
+  joining a background refresh) and that fetch fails, the request tries again
+  once with its own fetch function. Requests of the same kind return the error,
+  just like they always have.
+- A fetch function can request its own keys, as long as it uses the context
+  that it was called with, or one derived from it. Those requests fetch the
+  keys themselves instead of waiting for the fetch that they're part of, which
+  would never complete.
 
 # Early refreshes
 
